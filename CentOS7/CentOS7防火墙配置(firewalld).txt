@@ -1,0 +1,17 @@
+systemctl start firewalld.service
+
+firewall-cmd --state
+firewall-cmd --get-default-zone
+firewall-cmd --get-active-zones
+firewall-cmd --list-all
+
+firewall-cmd --permanent --zone=public --add-port=222/tcp
+firewall-cmd --permanent --zone=public --add-port=21000/udp
+firewall-cmd --permanent --zone=public --add-port=20000/tcp
+firewall-cmd --permanent --zone=public --add-port=80/tcp
+
+firewall-cmd --reload
+firewall-cmd --list-all
+
+
+firewall-cmd --add-port=31600/tcp

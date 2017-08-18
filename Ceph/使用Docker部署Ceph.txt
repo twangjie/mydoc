@@ -1,0 +1,220 @@
+# http://xiaoquqi.github.io/blog/2016/06/13/bootstrap-your-ceph-cluster-in-docker/
+# ceph-docker-osd CPU Usage rate very very high #148(https://github.com/ceph/ceph-docker/issues/148)
+
+#================================================================================
+docker proxy 配置
+
+mkdir -p /etc/systemd/system/docker.service.d/
+echo '[Service]' > /etc/systemd/system/docker.service.d/http-proxy.conf 
+echo 'Environment="HTTP_PROXY=http://192.168.35.3:8118/"' >> /etc/systemd/system/docker.service.d/http-proxy.conf 
+
+#Total PGs = (#OSDs * 100) / pool size
+
+#CEPH_DOCKER_IMAGE="ceph/daemon"
+CEPH_DOCKER_IMAGE="ceph/daemon:tag-build-master-luminous-centos-7"
+#CEPH_DOCKER_IMAGE="ceph/daemon:tag-build-master-luminous-ubuntu-16.04"
+#================================================================================
+# 分别在3台机器上配置ramdisk，用作osd的journal
+
+docker rm -f $(docker ps -a -q -f name=ceph)
+
+rm -fr /opt/docker/ceph
+find /data/disks -name "ceph" |xargs rm -fr
+
+umount /data/ramdisk/
+mkdir -p /data/ramdisk/
+mount -t tmpfs -o size=512m tmpfs /data/ramdisk/
+mount |grep /data |grep tmpfs
+
+# 启动第一个Monitor
+docker run -d --net=host --name=cephmon -v /opt/docker/ceph/etc/ceph:/etc/ceph -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph -e MON_IP=192.168.35.101 -e CEPH_PUBLIC_NETWORK=192.168.35.0/24 $CEPH_DOCKER_IMAGE mon
+#docker run -d --net=host --name=cephmon -v /opt/docker/ceph/etc/ceph:/etc/ceph -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph -e MON_IP=192.168.35.103 -e CEPH_PUBLIC_NETWORK=192.168.35.0/24 $CEPH_DOCKER_IMAGE mon
+
+# 免认证(luminous v12.1.2 osd_directory需要)
+# sed -i 's/cephx/none/g' /opt/docker/ceph/etc/ceph/ceph.conf
+
+# 修改ceph配置
+echo "mon_allow_pool_delete = true" >> /opt/docker/ceph/etc/ceph/ceph.conf 
+
+# 修改osd参数
+sed -i '/osd journal size = 100/d' /opt/docker/ceph/etc/ceph/ceph.conf 
+
+echo "[osd]" >> /opt/docker/ceph/etc/ceph/ceph.conf
+echo "journal aio = false" >> /opt/docker/ceph/etc/ceph/ceph.conf
+echo "journal dio = false" >> /opt/docker/ceph/etc/ceph/ceph.conf
+echo "osd journal size = 100" >> /opt/docker/ceph/etc/ceph/ceph.conf
+#echo "osd journal = /data/ramdisk/$cluster-$id/journal" >> /opt/docker/ceph/etc/ceph/ceph.conf
+
+#for ext4 file length bug
+echo "osd_max_object_name_len = 256" >> /opt/docker/ceph/etc/ceph/ceph.conf
+echo "osd_max_object_namespace_len = 64" >> /opt/docker/ceph/etc/ceph/ceph.conf
+echo "osd_check_max_object_name_len_on_startup = false"  >> /opt/docker/ceph/etc/ceph/ceph.conf
+###
+
+cat /opt/docker/ceph/etc/ceph/ceph.conf
+
+docker restart cephmon
+
+# 复制配置文件
+ssh root@host01 "rm -fr /opt/docker/ceph && mkdir -p /opt/docker/ceph && find /data/disks -name "ceph" |xargs rm -fr"
+scp -r /opt/docker/ceph/* root@host01:/opt/docker/ceph/
+
+ssh root@host02 "rm -fr /opt/docker/ceph && mkdir -p /opt/docker/ceph && find /data/disks -name "ceph" |xargs rm -fr"
+scp -r /opt/docker/ceph/* root@host02:/opt/docker/ceph/
+
+ssh root@host03 "rm -fr /opt/docker/ceph && mkdir -p /opt/docker/ceph && find /data/disks -name "ceph" |xargs rm -fr"
+scp -r /opt/docker/ceph/* root@host03:/opt/docker/ceph/
+
+ssh root@host04 "rm -fr /opt/docker/ceph && mkdir -p /opt/docker/ceph && find /data/disks -name "ceph" |xargs rm -fr"
+scp -r /opt/docker/ceph/* root@host04:/opt/docker/ceph/
+
+# 启动第二个和第三个Monitor
+#ssh host02 "docker run -d --net=host --name=cephmon -v /opt/docker/ceph/etc/ceph:/etc/ceph -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph -e MON_IP=192.168.35.102 -e CEPH_PUBLIC_NETWORK=192.168.35.0/24 $CEPH_DOCKER_IMAGE mon"
+ssh host03 "docker run -d --net=host --name=cephmon -v /opt/docker/ceph/etc/ceph:/etc/ceph -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph -e MON_IP=192.168.35.103 -e CEPH_PUBLIC_NETWORK=192.168.35.0/24 $CEPH_DOCKER_IMAGE mon"
+ssh host04 "docker run -d --net=host --name=cephmon -v /opt/docker/ceph/etc/ceph:/etc/ceph -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph -e MON_IP=192.168.35.104 -e CEPH_PUBLIC_NETWORK=192.168.35.0/24 $CEPH_DOCKER_IMAGE mon"
+
+# 启动MGR
+docker run -d --net=host --name=cephmgr -v /opt/docker/ceph/etc/ceph:/etc/ceph  -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph/ $CEPH_DOCKER_IMAGE mgr
+
+# 在三台机器上启动osd (必须添加参数--pid=host，否则osd会出错，并占用大量cpu)
+docker run -d --privileged=true --pid=host --net=host --name=cephosd1 -v /opt/docker/ceph/etc/ceph:/etc/ceph -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph/ -v /dev/:/dev/ -v /data/disks/1/ceph/osd:/var/lib/ceph/osd -v /data/ramdisk:/data/ramdisk -e JOURNAL_DIR=/data/ramdisk $CEPH_DOCKER_IMAGE osd_directory
+
+docker run -d --privileged=true --pid=host --net=host --name=cephosd2 -v /opt/docker/ceph/etc/ceph:/etc/ceph  -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph/ -v /dev/:/dev/ -v /data/disks/2/ceph/osd:/var/lib/ceph/osd -v /data/ramdisk:/data/ramdisk -e JOURNAL_DIR=/data/ramdisk  $CEPH_DOCKER_IMAGE osd_directory
+
+docker run -d --privileged=true --pid=host --net=host --name=cephosd3 -v /opt/docker/ceph/etc/ceph:/etc/ceph  -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph/ -v /dev/:/dev/ -v /data/disks/3/ceph/osd:/var/lib/ceph/osd -v /data/ramdisk:/data/ramdisk -e JOURNAL_DIR=/data/ramdisk  $CEPH_DOCKER_IMAGE osd_directory
+
+
+# 创建MDS
+docker run -d --net=host --name=cephmds -v /opt/docker/ceph/etc/ceph:/etc/ceph  -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph/ -e CEPHFS_CREATE=1 $CEPH_DOCKER_IMAGE mds
+
+# 启动RGW，并且映射80端口
+docker run -d --net=host --name=cephrgw -v /opt/docker/ceph/etc/ceph:/etc/ceph  -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph/ -p 8080:80 $CEPH_DOCKER_IMAGE rgw
+
+# 启动REST服务
+docker run -itd --restart=always --name=cephrest --privileged=true --net=host -e MON_NAME=cephmon -e MON_IP=127.0.0.1 -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph -v /opt/docker/ceph/etc/ceph:/etc/ceph $CEPH_DOCKER_IMAGE restapi
+
+# 测试集群是否安装成功
+docker exec cephmon ceph -s
+docker exec cephmon ceph osd tree
+docker exec cephmon ceph osd perf
+
+================================================================================
+# mount cephfs:  luminous 需要更新centos7的内核
+## ceph luminous需要关闭 hashpspool feature
+
+#ceph osd pool set cephfs_data hashpspool false --yes-i-really-mean-it
+#ceph osd pool set cephfs_metadata hashpspool false --yes-i-really-mean-it
+#ceph osd crush tunables jewel
+
+
+mount -t ceph 192.168.35.102:6789:/ /mnt/cephfs -o name=admin,secret=AQA4W5BZYpNrHhAAXPfBWv8nX4Pdijqhi6mtJw==
+
+
+
+================================================================================
+http://docs.ceph.com/docs/master/man/8/radosgw-admin/
+http://docs.ceph.org.cn/man/8/radosgw-admin/
+
+1.创建radosgw用户:
+docker exec -it cephmon bash -c "radosgw-admin user create --display-name=test --uid=test"
+
+2.创建子用户(swift):
+docker exec -it cephmon bash -c "radosgw-admin subuser create --uid=test --subuser=test:swift --access=full"
+
+
+================================================================================
+RADOS 性能测试：
+
+1、使用 Ceph 自带的 rados bench 工具
+该工具的语法为：rados bench -p <pool_name> <seconds> <write|seq|rand> -b <block size> -t --no-cleanup
+
+pool_name：测试所针对的存储池
+seconds：测试所持续的秒数
+<write|seq|rand>：操作模式，write：写，seq：顺序读；rand：随机读
+-b：block size，即块大小，默认为 4M
+-t：读/写并行数，默认为 16
+--no-cleanup 表示测试完成后不删除测试用数据。在做读测试之前，需要使用该参数来运行一遍写测试来产生测试数据，在全部测试结束后可以运行 rados -p <pool_name> cleanup 来清理所有测试数据。
+
+ceph osd pool create scbench 100 100
+
+写数据：
+rados bench -p scbench 10 write --no-cleanup
+
+顺序读：
+rados bench -p scbench 10 seq
+
+随机读：
+rados bench -p scbench 10 rand
+
+清理数据：
+rados -p scbench cleanup
+
+ceph osd pool delete scbench scbench --yes-i-really-really-mean-it
+
+--------------------------------------------------------------------------------
+2、使用 rados load-gen 工具
+
+rados -p scbench load-gen
+rados -p scbench load-gen --read-percent 0 --min-object-size 1073741824 --max-object-size 1073741824 --max-ops 1 --read-percent 0 --min-op-len 4194304 --max-op-len 4194304 --target-throughput 1073741824 --max_backlog 1073741824
+
+================================================================================
+更换osd，如：磁盘故障
+
+依次执行：
+
+1、查看down的osd及其所在的host
+docker exec cephmon ceph osd tree
+
+[root@host03 ceph]# docker exec cephmon ceph osd tree
+ID WEIGHT   TYPE NAME                               UP/DOWN REWEIGHT PRIMARY-AFFINITY 
+-1 21.84000 root default                                                              
+-2  7.28000     host host01.cluster02.test.dccs.com                                   
+ 0  3.64000         osd.0                                up  1.00000          1.00000 
+ 1  3.64000         osd.1                                up  1.00000          1.00000 
+-3  7.28000     host host02.cluster02.test.dccs.com                                   
+ 2  3.64000         osd.2                                up  1.00000          1.00000 
+ 3  3.64000         osd.3                                up  1.00000          1.00000 
+-4  7.28000     host host03.cluster02.test.dccs.com                                   
+ 4  3.64000         osd.4                                up  1.00000          1.00000 
+ 5  3.64000         osd.5                              down        0          1.00000
+
+2、转到host03
+
+找到osd.5对应的docker容器（如：cephosd2)
+
+2.1 删除osd5对应的容器及其数据
+
+docker rm -f cephosd2
+
+OSDID=5
+rm -fr /data/disks/2/ceph
+rm -f /data/ramdisk/journal.$OSDID
+
+2.2 将osd.5标记为out
+docker exec cephmon ceph osd out osd.$OSDID
+
+2.3 从Ceph集群删除osd.5
+docker exec cephmon ceph auth del osd.$OSDID
+docker exec cephmon ceph osd crush remove osd.$OSDID
+docker exec cephmon ceph osd rm osd.$OSDID
+
+2.4 启动新的osd容器
+docker run -d --privileged=true --pid=host --net=host --name=cephosd2 -v /opt/docker/ceph/etc/ceph:/etc/ceph  -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph/ -v /dev/:/dev/ -v /data/disks/2/ceph/osd:/var/lib/ceph/osd -v /data/ramdisk:/data/ramdisk -e JOURNAL_DIR=/data/ramdisk  $CEPH_DOCKER_IMAGE osd_directory
+
+================================
+radosgw相关命令：
+
+删除bucket及其数据：
+radosgw-admin bucket rm --bucket=batch-test  --purge-objects
+
+删除user及其数据：
+radosgw-admin user rm --uid=<username> --purge-data
+
+================================================================================
+单节点部署，需要修改以下项目：
+
+#将pool的副本数修改为1
+ceph osd pool set cephfs_data size 1
+ceph osd pool set cephfs_metadata size 1
+ceph osd pool set scbench size 1
+

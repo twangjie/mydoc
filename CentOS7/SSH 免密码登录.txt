@@ -1,0 +1,36 @@
+SSH 免密码登录
+
+3台主机
+
+192.168.35.101 host01
+192.168.35.102 host02 
+192.168.35.103 host03
+
+# (1)CentOS默认没有启动ssh无密登录，去掉/etc/ssh/sshd_config其中2行的注释，每台服务器都要设置，
+
+#RSAAuthentication yes
+#PubkeyAuthentication yes
+
+systemctl restart sshd
+
+# (2)在每台机器上都要执行ssh-keygen -t rsa命令，生成key，都不输入密码，一直回车，/root就会生成.ssh文件夹
+ssh-keygen -t rsa
+ 
+# (3)合并公钥到authorized_keys文件，在host01服务器，进入/root/.ssh目录，通过SSH命令合并:
+
+cat /root/.ssh/id_rsa.pub >> /root/.ssh/authorized_keys
+ssh root@host02 cat /root/.ssh/id_rsa.pub>> /root/.ssh/authorized_keys
+ssh root@host03 cat /root/.ssh/id_rsa.pub>> /root/.ssh/authorized_keys
+
+# (4)把host01的authorized_keys、known_hosts复制到host02,host03服务器的/root/.ssh目录
+pushd /root/.ssh
+scp authorized_keys known_hosts host02:/root/.ssh/
+scp authorized_keys known_hosts host03:/root/.ssh/
+
+
+# (5)然后把三台机器 .ssh/ 文件夹权限改为700，authorized_keys文件权限改为600（or 644）.
+
+chmod 700 ~/.ssh
+chmod 600 ~/.ssh/authorized_keys
+
+

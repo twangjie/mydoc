@@ -1,0 +1,57 @@
+0605947402145950152410569604
+
+入库的时候：
+5秒之内同一摄像机，如果发现重复车牌，就丢失这条记录
+
+
+================================
+Docker搭建本地私有仓库
+
+http://blog.csdn.net/u010397369/article/details/42422243
+
+rpm -ivh http://dl.Fedoraproject.org/pub/epel/6/x86_64/epel-release-6-8.noarch.rpm
+yum install docker-io --enablerepo=eple
+
+centos6:
+修改配置文件：/etc/sysconfig/docker
+在其中将
+other_args=
+改为
+other_args="--insecure-registry 192.168.35.10:5000"
+
+centos7:
+在/etc/sysconfig/docker文件中，将INSECURE_REGISTRY改为：
+INSECURE_REGISTRY='--insecure-registry 192.168.35.101:15000'
+
+
+sudo docker pull registry  
+sudo docker run --name="dr" -d -p 15000:5000 -v /opt/docker/data/registry:/tmp/registry registry  
+#将容器中的5000端口映射到宿主机的15000
+
+
+pull一个比较小的镜像来测试（此处使用的是busybox）
+sudo docker pull busybox
+
+接下来修改一下该镜像的tag
+sudo docker tag busybox 192.168.35.101:15000/busybox 
+
+把打了tag的镜像上传到私服
+sudo docker push 192.168.35.101:15000/busybox  
+--------------------------------------------
+[root@host01 ~]# sudo docker push 192.168.35.101:15000/busybox  
+The push refers to a repository [192.168.35.101:15000/busybox] (len: 1)
+Sending image list
+Pushing repository 192.168.35.101:15000/busybox (1 tags)
+4b51ded9aed1: Image successfully pushed 
+307ac631f1b5: Image successfully pushed 
+Pushing tag for rev [307ac631f1b5] on {http://192.168.35.101:15000/v1/repositories/busybox/tags/latest}
+-------------------------------------------------------------
+
+以看到镜像已经push到私有仓库中去了，接下来我们删除本地镜像，然后从私有仓库中pull下来该镜像
+
+sudo docker pull 192.168.35.101:15000/busybox
+
+
+
+
+

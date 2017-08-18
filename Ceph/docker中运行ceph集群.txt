@@ -1,0 +1,277 @@
+
+pg_num计算器
+http://ceph.com/pgcalc/
+=======================
+
+/dev/sdb1                      3.7T   99G  3.6T    3% /opt/osd/0
+/dev/sdc1                      3.7T  105G  3.6T    3% /opt/osd/1
+/dev/sdd1                      3.7T  106G  3.6T    3% /opt/osd/2
+
+[dockerrepo]
+name=Docker Repository
+baseurl=https://yum.dockerproject.org/repo/main/centos/$releasever/
+enabled=1
+gpgcheck=1
+gpgkey=https://yum.dockerproject.org/gpg
+
+
+yum install docker-engine -y
+
+===============================================================
+搭建私有仓库
+
+CentOS7中：
+echo '{ "insecure-registries":["192.168.35.101:15000"] }' > /etc/docker/daemon.json 
+
+执行：
+systemctl daemon-reload
+
+systemctl start docker
+
+docker pull registry
+
+docker run -d --restart=always -v /opt/docker/registry/data:/data -v /opt/docker/registry/registry-storage:/registry-storage -v /opt/docker/registry/var/lib/registry:/var/lib/registry -p 15000:5000 --name r2 -e STORAGE_PATH=/data registry
+
+
+docker pull ceph/daemon
+
+docker tag ceph/daemon 192.168.35.101:15000/ceph/daemon
+docker push 192.168.35.101:15000/ceph/daemon
+
+docker pull shipyard/shipyard
+docker tag shipyard/shipyard 192.168.35.101:15000/shipyard/shipyard
+docker push 192.168.35.101:15000/shipyard/shipyard
+
+================================================================================================================================================
+部署 shipyard
+
+curl -sSL https://shipyard-project.com/deploy -o shipyard-deploy.sh
+
+在host01上执行：
+cat shipyard-deploy.sh | ACTION=deploy IMAGE=192.168.35.101:15000/shipyard/shipyard PORT=28080 IP=192.168.35.101 bash -s
+
+在host02上执行：
+cat shipyard-deploy.sh | ACTION=node IMAGE=192.168.35.101:15000/shipyard/shipyard DISCOVERY=etcd://192.168.35.101:4001 IP=192.168.35.102 bash -s
+
+在host03上执行：
+cat shipyard-deploy.sh | ACTION=node IMAGE=192.168.35.101:15000/shipyard/shipyard DISCOVERY=etcd://192.168.35.101:4001 IP=192.168.35.103 bash -s
+
+删除节点：
+cat shipyard-deploy.sh | ACTION=remove bash -s
+
+
+===============================================================
+
+在所有host上执行:
+rm -fr /data/ramdisk/*
+rm -fr /opt/docker/ceph
+mkdir -p /opt/docker/ceph
+find /data/disks -name 'ceph' |xargs rm -fr
+
+
+#在host01上安装ceph/daemon
+docker pull 192.168.35.101:15000/ceph/daemon
+
+#在host01上启动mon
+
+docker run -itd --restart=always --name=cephmon --ulimit core=0 --privileged=true --net=host -v /opt/docker/ceph/etc/ceph:/etc/ceph -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph -e MON_IP=192.168.35.101 -e CEPH_PUBLIC_NETWORK=192.168.35.0/24 192.168.35.101:15000/ceph/daemon mon
+
+docker exec -it cephmon /bin/bash
+
+###
+#echo "osd crush chooseleaf type = 0" >> /etc/ceph/ceph.conf
+#echo "osd pool default pg num = 250" >> /etc/ceph/ceph.conf
+
+##Sets the number of replicas for objects in the pool. 
+#echo "osd pool default size = 3" >> /etc/ceph/ceph.conf
+##Sets the minimum number of written replicas for objects in the pool in order to acknowledge a write operation to the client.
+#echo "osd pool default min size = 1" >> /etc/ceph/ceph.conf
+
+#for ext4 file length bug
+echo "osd_max_object_name_len = 256" >> /etc/ceph/ceph.conf
+echo "osd_max_object_namespace_len = 64" >> /etc/ceph/ceph.conf
+echo "osd_check_max_object_name_len_on_startup = false"  >> /etc/ceph/ceph.conf
+###
+
+###免认证
+sed -i 's/cephx/none/g' /etc/ceph/ceph.conf
+###
+
+#修改osd参数
+echo "[osd]" >> /etc/ceph/ceph.conf
+echo "journal dio = false" >> /etc/ceph/ceph.conf
+echo "osd journal size = 100" >> /etc/ceph/ceph.conf
+#echo "osd journal = /data/ramdisk/journal" >> /etc/ceph/ceph.conf
+
+exit
+
+docker restart cephmon
+
+#拷贝文件到其他节点
+scp -r /opt/docker/ceph/etc root@host02:/opt/docker/ceph/
+scp -r /opt/docker/ceph/etc root@host03:/opt/docker/ceph/
+
+#scp -r /opt/docker/ceph/var/lib/ceph/bootstrap-osd root@host02:/opt/docker/ceph/var/lib/ceph/
+
+#在host02上安装ceph/daemon
+docker pull 192.168.35.101:15000/ceph/daemon
+
+#在host02上启动mon
+docker run -itd --restart=always --name=cephmon --ulimit core=0 --privileged=true --net=host -v /opt/docker/ceph/etc/ceph:/etc/ceph -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph -e MON_IP=192.168.35.102 -e CEPH_PUBLIC_NETWORK=192.168.35.0/24 192.168.35.101:15000/ceph/daemon mon
+
+#在host03上安装ceph/daemon
+docker pull 192.168.35.101:15000/ceph/daemon
+
+#在host03上启动mon
+docker run -itd --restart=always --name=cephmon --ulimit core=0 --privileged=true --net=host -v /opt/docker/ceph/etc/ceph:/etc/ceph -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph -e MON_IP=192.168.35.103 -e CEPH_PUBLIC_NETWORK=192.168.35.0/24 192.168.35.101:15000/ceph/daemon mon
+
+
+执行下面命令，在分别在host01、host02、host03上启动3个osd：
+
+mkdir -p /data/ramdisk/
+mount -t tmpfs -o size=512m tmpfs /data/ramdisk/
+
+# 必须添加参数--pid=host，否则osd会出错，并占用大量cpu
+docker run -itd --pid=host --restart=always --name=osd0 --ulimit core=0 --privileged=true --net=host --log-driver=json-file --log-opt max-size=100m --log-opt max-file=10 -e CLUSTER=ceph -e WEIGHT=1.0 -e MON_NAME=cephmon -e MON_IP=192.168.35.101 -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph -v /data/disks/0/ceph/:/var/lib/ceph/osd -v /opt/docker/ceph/etc/ceph:/etc/ceph -v /data/ramdisk:/data/ramdisk -e JOURNAL_DIR=/data/ramdisk 192.168.35.101:15000/ceph/daemon osd
+
+docker run -itd --pid=host --restart=always --name=osd1 --ulimit core=0 --privileged=true --net=host --log-driver=json-file --log-opt max-size=100m --log-opt max-file=10 -e CLUSTER=ceph -e WEIGHT=1.0 -e MON_NAME=cephmon -e MON_IP=192.168.35.101 -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph -v /data/disks/1/ceph/:/var/lib/ceph/osd -v /opt/docker/ceph/etc/ceph:/etc/ceph -v /data/ramdisk:/data/ramdisk -e JOURNAL_DIR=/data/ramdisk 192.168.35.101:15000/ceph/daemon osd
+
+docker run -itd --pid=host --restart=always --name=osd2 --ulimit core=0 --privileged=true --net=host --log-driver=json-file --log-opt max-size=100m --log-opt max-file=10 -e CLUSTER=ceph -e WEIGHT=1.0 -e MON_NAME=cephmon -e MON_IP=192.168.35.101 -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph -v /data/disks/2/ceph/:/var/lib/ceph/osd -v /opt/docker/ceph/etc/ceph:/etc/ceph -v /data/ramdisk:/data/ramdisk -e JOURNAL_DIR=/data/ramdisk 192.168.35.101:15000/ceph/daemon osd
+
+######
+docker run -itd --pid=host --restart=always --name=osd0 --ulimit core=0 --privileged=true --net=host --log-driver=json-file --log-opt max-size=100m --log-opt max-file=10 -e CLUSTER=ceph -e WEIGHT=1.0 -e MON_NAME=cephmon -e MON_IP=192.168.35.102 -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph -v /data/disks/0/ceph/:/var/lib/ceph/osd -v /opt/docker/ceph/etc/ceph:/etc/ceph -v /data/ramdisk:/data/ramdisk -e JOURNAL_DIR=/data/ramdisk 192.168.35.101:15000/ceph/daemon osd
+
+docker run -itd --pid=host --restart=always --name=osd1 --ulimit core=0 --privileged=true --net=host --log-driver=json-file --log-opt max-size=100m --log-opt max-file=10 -e CLUSTER=ceph -e WEIGHT=1.0 -e MON_NAME=cephmon -e MON_IP=192.168.35.102 -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph -v /data/disks/1/ceph/:/var/lib/ceph/osd -v /opt/docker/ceph/etc/ceph:/etc/ceph -v /data/ramdisk:/data/ramdisk -e JOURNAL_DIR=/data/ramdisk 192.168.35.101:15000/ceph/daemon osd
+
+docker run -itd --pid=host --restart=always --name=osd2 --ulimit core=0 --privileged=true --net=host --log-driver=json-file --log-opt max-size=100m --log-opt max-file=10 -e CLUSTER=ceph -e WEIGHT=1.0 -e MON_NAME=cephmon -e MON_IP=192.168.35.102 -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph -v /data/disks/2/ceph/:/var/lib/ceph/osd -v /opt/docker/ceph/etc/ceph:/etc/ceph -v /data/ramdisk:/data/ramdisk -e JOURNAL_DIR=/data/ramdisk 192.168.35.101:15000/ceph/daemon osd
+
+######
+docker run -itd --pid=host --restart=always --name=osd0 --ulimit core=0 --privileged=true --net=host --log-driver=json-file --log-opt max-size=100m --log-opt max-file=10 -e CLUSTER=ceph -e WEIGHT=1.0 -e MON_NAME=cephmon -e MON_IP=192.168.35.103 -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph -v /data/disks/0/ceph/:/var/lib/ceph/osd -v /opt/docker/ceph/etc/ceph:/etc/ceph -v /data/ramdisk:/data/ramdisk -e JOURNAL_DIR=/data/ramdisk 192.168.35.101:15000/ceph/daemon osd
+
+docker run -itd --pid=host --restart=always --name=osd1 --ulimit core=0 --privileged=true --net=host --log-driver=json-file --log-opt max-size=100m --log-opt max-file=10 -e CLUSTER=ceph -e WEIGHT=1.0 -e MON_NAME=cephmon -e MON_IP=192.168.35.103 -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph -v /data/disks/1/ceph/:/var/lib/ceph/osd -v /opt/docker/ceph/etc/ceph:/etc/ceph -v /data/ramdisk:/data/ramdisk -e JOURNAL_DIR=/data/ramdisk 192.168.35.101:15000/ceph/daemon osd
+
+docker run -itd --pid=host --restart=always --name=osd2 --ulimit core=0 --privileged=true --net=host --log-driver=json-file --log-opt max-size=100m --log-opt max-file=10 -e CLUSTER=ceph -e WEIGHT=1.0 -e MON_NAME=cephmon -e MON_IP=192.168.35.103 -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph -v /data/disks/2/ceph/:/var/lib/ceph/osd -v /opt/docker/ceph/etc/ceph:/etc/ceph -v /data/ramdisk:/data/ramdisk -e JOURNAL_DIR=/data/ramdisk 192.168.35.101:15000/ceph/daemon osd
+
+
+
+在host03上启动mds
+docker run -itd --restart=always --name=cephmds --ulimit core=0 --privileged=true --net=host -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph -v /opt/docker/ceph/etc/ceph:/etc/ceph -e CEPHFS_CREATE=1 -e MDS_NAME=cephmds 192.168.35.101:15000/ceph/daemon mds
+
+
+测试集群是否安装成功
+docker exec cephmon ceph -s
+docker exec cephmon ceph osd tree
+docker exec cephmon ceph osd perf
+
+在host03上启动REST服务
+docker run -itd --restart=always --name=cephrest --privileged=true --net=host -e MON_NAME=cephmon -e MON_IP=127.0.0.1 -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph -v /opt/docker/ceph/etc/ceph:/etc/ceph 192.168.35.101:15000/ceph/daemon restapi
+
+在3台机器上分别启动RADOS gateway
+docker run -itd --restart=always --name=cephrgw --privileged=true --net=host -e MON_IP=127.0.0.1 -e RGW_CIVETWEB_PORT=8080 -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph  -v /opt/docker/ceph/etc/ceph:/etc/ceph 192.168.35.101:15000/ceph/daemon rgw
+
+
+
+http://docs.ceph.com/docs/master/man/8/radosgw-admin/
+http://docs.ceph.org.cn/man/8/radosgw-admin/
+1.创建用户:
+docker exec -it cephmon bash -c "radosgw-admin user create --display-name=test --uid=test"                    
+ 
+{
+    "user_id": "tip",
+    "display_name": "tip",
+    "email": "",
+    "suspended": 0,
+    "max_buckets": 1000,
+    "auid": 0,
+    "subusers": [],
+    "keys": [
+        {
+            "user": "tip",
+            "access_key": "35CVL9P8SP1G1P5KYQ12",
+            "secret_key": "asBqnikWP56gtq3FsEwCMoOCYe6EQsy0ODqxqqev"
+        }
+    ],
+    "swift_keys": [],
+    "caps": [],
+    "op_mask": "read, write, delete",
+    "default_placement": "",
+    "placement_tags": [],
+    "bucket_quota": {
+        "enabled": false,
+        "max_size_kb": -1,
+        "max_objects": -1
+    },
+    "user_quota": {
+        "enabled": false,
+        "max_size_kb": -1,
+        "max_objects": -1
+    },
+    "temp_url_keys": []
+}
+
+		 
+
+#设置PG Number
+http://docs.ceph.com/docs/master/rados/operations/placement-groups/
+PG和PGP数量一定要根据OSD的数量进行调整，计算公式如下，但是最后算出的结果一定要接近或者等于一个2的指数。
+Total PGs = (Total_number_of_OSD * 100) / max_replication_count
+
+ceph osd pool set {pool-name} pg_num {pg_num}
+ceph osd pool set {pool-name} pgp_num {pgp_num}
+
+例如15个OSD，副本数为3的情况下，根据公式计算的结果应该为500，最接近512，所以需要设定该pool(volumes)的pg_num和pgp_num都为512.
+
+ceph osd pool set volumes pg_num 512
+ceph osd pool set volumes pgp_num 512
+
+设置RGW的pool的pg和pgp数量
+ceph osd pool set default.rgw.buckets.data pg_num 512
+ceph osd pool set default.rgw.meta pg_num 512
+
+更换osd，如：磁盘故障
+
+依次执行：
+
+1、查看down的osd及其所在的host
+docker exec cephmon ceph osd tree
+
+        [root@host03 ceph]# docker exec cephmon ceph osd tree
+        ID WEIGHT   TYPE NAME                               UP/DOWN REWEIGHT PRIMARY-AFFINITY 
+        -1 21.84000 root default                                                              
+        -2  7.28000     host host01.cluster02.test.dccs.com                                   
+         0  3.64000         osd.0                                up  1.00000          1.00000 
+         1  3.64000         osd.1                                up  1.00000          1.00000 
+        -3  7.28000     host host02.cluster02.test.dccs.com                                   
+         2  3.64000         osd.2                                up  1.00000          1.00000 
+         3  3.64000         osd.3                                up  1.00000          1.00000 
+        -4  7.28000     host host03.cluster02.test.dccs.com                                   
+         4  3.64000         osd.4                                up  1.00000          1.00000 
+         5  3.64000         osd.5                              down        0          1.00000
+
+2、转到host03
+
+osd.5对应的docker容器为osd5（根据前文约定的docker osd命名规则）
+2.1 删除osd5对应的容器及之前的数据
+docker stop osd5
+docker rm osd5
+rm /opt/osd/1/ceph/*
+
+2.2 将osd.5标记为out
+docker exec cephmon ceph osd out 5
+
+2.3 从集群删除osd.5
+OSDID=5
+docker exec cephmon ceph auth del osd.$OSDID
+docker exec cephmon ceph osd crush remove osd.$OSDID
+docker exec cephmon ceph osd rm osd.$OSDID
+
+2.4 重新创建新的osd
+docker exec cephmon ceph osd create
+5
+
+2.5 根据新的osd编号，启动新的osd容器
+docker run -itd --restart=always --name=osd5 --privileged=true --net=host -e CLUSTER=ceph -e WEIGHT=1.0 -e MON_NAME=cephmon -e MON_IP=192.168.35.103 -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph -v /opt/docker/ceph/etc/ceph:/etc/ceph -v /opt/osd/1/ceph:/var/lib/ceph/osd/ceph-5 192.168.35.101:15000/ceph/daemon osd
+
+
+删除并清空Bucket
+radosgw-admin -n client.id bucket rm --bucket=bucketName --purge-objects

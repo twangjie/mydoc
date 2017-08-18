@@ -1,0 +1,45 @@
+echo "Y" | parted /dev/sdb mklabel gpt
+echo "Y" | parted /dev/sdb mkpart primary xfs 2048s 100%
+mkfs.xfs /dev/sdb1 -f -b size=4096 -i size=2048
+mkfs.xfs /dev/sdc1 -f -b size=4096 -i size=2048
+mkfs.xfs /dev/sdd1 -f -b size=4096 -i size=2048
+
+/etc/fstab
+/dev/sdb1                                       xfs     defaults,noatime        0 0
+/dev/sdc1                                       xfs     defaults,noatime        0 0
+
+mount /dev/sdb1 /var/lib/docker/ -o noatime
+mount /dev/sdc1 /opt/osd -o noatime
+
+yum install docker -y
+
+service docker start
+
+rm /var/lib/ceph/ /etc/ceph/ -fr
+
+docker run -d --net=host --name=cephdemo -v /etc/ceph:/etc/ceph -e MON_IP=192.168.35.101 -e CEPH_NETWORK=192.168.35.0/24 ceph/demo
+mount -t ceph 192.168.35.101:6789:/ /mnt/cephfs -o name=admin,secret=AQC+zwxXjIujLxAA2/T+KRd4JCPQ9LR4QBpYbA==
+
+docker exec -it cephdemo /bin/bash
+more /etc/ceph/ceph.client.admin.keyring
+
+
+
+[root@host01 ~]# docker ps -a
+CONTAINER ID        IMAGE               COMMAND             CREATED             STATUS              PORTS               NAMES
+427b1017f896        ceph/demo           "/entrypoint.sh"    15 hours ago        Up 15 hours                             cephdemo
+[root@host01 ~]# ps -ef |grep ceph
+root     11079     2  0 4月12 ?       00:00:00 [ceph-msgr]
+root     13268 11882  0 4月12 ?       00:00:02 /usr/bin/python /usr/bin/ceph --cluster ceph -w
+root     13298 13268  0 4月12 ?       00:00:18 ceph-mon --cluster ceph -i host01 --public-addr 192.168.35.101
+root     13461 13268  0 4月12 ?       00:02:45 ceph-osd --cluster ceph -i 0 -k /var/lib/ceph/osd/ceph-0/keyring
+root     13671 13268  0 4月12 ?       00:00:17 ceph-mds --cluster ceph -i 0
+root     13725 13268  0 4月12 ?       00:00:38 radosgw -c /etc/ceph/ceph.conf -n client.radosgw.gateway -k /var/lib/ceph/radosgw/host01/keyring --rgw-socket-path= --rgw-frontends=civetweb port=80
+root     13728 13268  0 4月12 ?       00:00:07 /usr/bin/python /usr/bin/ceph-rest-api --cluster ceph -n client.admin
+root     13986     2  0 4月12 ?       00:00:00 [ceph-watch-noti]
+root     15248 10566  0 10:04 pts/2    00:00:00 grep --color=auto ceph
+
+
+docker run -itd --name=mymon --privileged=true --net=host -v /etc/ceph:/etc/ceph -v /var/lib/ceph/:/var/lib/ceph -e MON_IP=192.168.35.101 -e CEPH_PUBLIC_NETWORK=192.168.35.0/24 ceph/daemon mon
+docker exec mymon ceph osd create
+docker run -itd --name=osd0 --net=host -e CLUSTER=ceph -e WEIGHT=1.0 -e MON_NAME=mymon -e MON_IP=192.168.35.101 -v /etc/ceph:/etc/ceph -v /opt/osd/0:/var/lib/ceph/osd/ceph-0 ceph/osd

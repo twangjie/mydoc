@@ -1,0 +1,18 @@
+#备份/home
+tar cvf /tmp/home.tar /home    
+
+#卸载/home，如果无法卸载，先终止使用/home文件系统的进程
+umount /home
+
+#删除/home所在的lv
+lvremove /dev/centos/home
+
+#扩展/root所在的lv，增加50G
+lvextend -L +50G /dev/centos/root
+
+#扩展/root文件系统
+xfs_growfs /dev/centos/root
+
+# 删除home挂载点
+vi /etc/fstab
+

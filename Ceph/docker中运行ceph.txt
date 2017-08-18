@@ -1,0 +1,178 @@
+service docker start
+
+docker pull docker.io/learn/tutorial
+docker pull ceph/mds:latest
+docker pull ceph/mon:latest
+docker pull ceph/osd:latest
+docker pull ceph/daemon:latest
+docker pull ceph/demo
+
+===========================================
+运行ceph demo
+docker run -d --net=host --name=cephdemo -v /etc/ceph:/etc/ceph -e MON_IP=192.168.35.101 -e CEPH_PUBLIC_NETWORK=192.168.35.0/24 ceph/demo
+
+docker run -d --net=host --name=cephdemo -v /opt/docker/cephdemo/etc/ceph:/etc/ceph -v /opt/docker/cephdemo/var/lib/ceph:/var/lib/ceph -v /opt/docker/cephdemo/var/run/ceph/:/var/run/ceph -e MON_IP=192.168.35.240 -e CEPH_PUBLIC_NETWORK=192.168.35.0/24 192.168.35.101:15000/ceph/demo
+
+进入容器
+docker ps
+	CONTAINER ID        IMAGE               COMMAND             CREATED             STATUS              PORTS               NAMES
+	34f808e903c3        ceph/demo           "/entrypoint.sh"    6 minutes ago       Up 6 minutes                            cephdemo
+
+docker exec -it cephdemo /bin/bash
+	rados lspools
+	rados -p cephfs_data ls
+
+查询secret
+	docker exec -it cephdemo more /etc/ceph/ceph.client.admin.keyring
+	
+	
+
+
+退出容器，挂载ceph文件系统
+mount -t ceph 192.168.35.101:6789:/ /mnt/cephfs -o name=admin,secret=AQDe7g1XZ6AOMRAAV8y04t/zV8UXnZLeeFNLnw==
+
+dd性能测试
+dd if=/dev/zero of=/mnt/cephfs/zero bs=1M count=1000 
+dd if=/dev/zero of=/mnt/cephfs/zero bs=1M count=1000 oflag=direct
+
+
+======================================================
+创建并运行mon
+docker run -d  --name=mymon --net=host -e MON_IP=192.168.35.101 -e MON_NAME=mymon -v /opt/etc/ceph:/etc/ceph ceph/mon
+
+docker ps
+CONTAINER ID        IMAGE               COMMAND             CREATED             STATUS              PORTS               NAMES
+6406bcae154c        ceph/mon            "/entrypoint.sh"    9 minutes ago       Up 9 minutes                            clever_carson
+
+docker logs -f mymon
+
+创建并启动三个osd
+docker exec mymon ceph osd create
+docker run -itd --name=osd0 --net=host -e CLUSTER=ceph -e WEIGHT=1.0 -e MON_NAME=mymon -e MON_IP=192.168.35.101 -v /opt/etc/ceph:/etc/ceph -v /opt/osd/0:/var/lib/ceph/osd/ceph-0 ceph/osd
+docker logs -f osd0
+
+docker exec mymon ceph osd create
+docker run -itd --name=osd1 --net=host -e CLUSTER=ceph -e WEIGHT=1.0 -e MON_NAME=mymon -e MON_IP=192.168.35.101 -v /opt/etc/ceph:/etc/ceph -v /opt/osd/1:/var/lib/ceph/osd/ceph-1 ceph/osd
+
+docker exec mymon ceph osd create
+docker run -itd --name=osd2 --net=host -e CLUSTER=ceph -e WEIGHT=1.0 -e MON_NAME=mymon -e MON_IP=192.168.35.101 -v /opt/etc/ceph:/etc/ceph -v /opt/osd/2:/var/lib/ceph/osd/ceph-2 ceph/osd
+
+sudo chmod +r /opt/etc/ceph/ceph.client.admin.keyring   
+
+查看ceph集群状态
+docker exec -it mymon ceph -s
+
+启动REST服务
+docker exec -it mymon ceph-rest-api -n client.admin
+
+查看ceph集群容器状态
+[root@host01 osd]# docker ps -a
+CONTAINER ID        IMAGE               COMMAND             CREATED             STATUS              PORTS               NAMES
+2df712907aeb        ceph/osd            "/sbin/my_init"     2 minutes ago       Up 2 minutes                            osd2
+c468eeb85392        ceph/osd            "/sbin/my_init"     2 minutes ago       Up 2 minutes                            osd1
+4974a559ba6c        ceph/osd            "/sbin/my_init"     10 minutes ago      Up 10 minutes                           osd0
+617e3b514cb7        ceph/mon            "/entrypoint.sh"    21 minutes ago      Up 21 minutes                           clever_carson
+
+
+
+
+sudo mount -t ceph 192.168.35.101:6789:/ /mnt/cephfs/ -o name=admin,secretfile=admin.secret
+sudo mount -t ceph 192.168.35.101:6789:/ /mnt/cephfs/ -o name=admin,secret=AQBJkQxX0dKENRAAJjql7UhuwoKtekgLYT5ydw==
+
+=====================================================================================================================
+http://dockone.io/article/558
+从daemon镜像中启动mon和osd等模块
+
+docker pull ceph/daemon
+
+启动mon
+docker run -itd --name=mymon --privileged=true --net=host -v /etc/ceph:/etc/ceph -v /var/lib/ceph/:/var/lib/ceph -e MON_IP=192.168.35.101 -e CEPH_PUBLIC_NETWORK=192.168.35.0/24 ceph/daemon mon
+	CONTAINER ID        IMAGE               COMMAND                CREATED             STATUS              PORTS               NAMES
+	a3dfa13f3b24        ceph/daemon         "/entrypoint.sh mon"   11 seconds ago      Up 8 seconds                            mymon
+
+###单节点
+echo "osd crush chooseleaf type = 0" >> /etc/ceph/ceph.conf
+echo "osd pool default size = 1" >> /etc/ceph/ceph.conf
+###
+
+###免认证
+sed -i 's/cephx/none/g' /etc/ceph/ceph.conf
+###
+
+docker restart mymon
+
+启动mds
+docker run -itd --name=mymds --privileged=true --net=host -v /var/lib/ceph/:/var/lib/ceph -v /etc/ceph:/etc/ceph -e CEPHFS_CREATE=1 -e MDS_NAME=mymds ceph/daemon mds
+
+创建3个osd
+docker exec mymon ceph osd create
+docker exec mymon ceph osd create
+docker exec mymon ceph osd create
+
+启动3个osd
+docker run -itd --name=osd0 --privileged=true --net=host -e CLUSTER=ceph -e WEIGHT=1.0 -e MON_NAME=mymon -e MON_IP=192.168.35.101 -v /etc/ceph:/etc/ceph -v /opt/osd/0:/var/lib/ceph/osd/ceph-0 ceph/daemon osd
+docker run -itd --name=osd1 --privileged=true --net=host -e CLUSTER=ceph -e WEIGHT=1.0 -e MON_NAME=mymon -e MON_IP=192.168.35.101 -v /etc/ceph:/etc/ceph -v /opt/osd/1:/var/lib/ceph/osd/ceph-1 ceph/daemon osd
+docker run -itd --name=osd2 --privileged=true --net=host -e CLUSTER=ceph -e WEIGHT=1.0 -e MON_NAME=mymon -e MON_IP=192.168.35.101 -v /etc/ceph:/etc/ceph -v /opt/osd/2:/var/lib/ceph/osd/ceph-2 ceph/daemon osd
+
+docker restart osd0
+docker restart osd1
+docker restart osd2
+
+docker exec -it mymon ceph -s
+
+直接挂载硬盘到osd
+docker run -itd --name=osd2 --net=host --privileged=true -v /etc/ceph:/etc/ceph -v /var/lib/ceph/:/var/lib/ceph -v /dev/:/dev/ -e OSD_DEVICE=/dev/sdd ceph/daemon osd osd_ceph_disk
+
+启动REST服务
+docker exec -it mymon ceph-rest-api -n client.admin
+
+启动RADOS Gateway服务
+docker run -itd --name=myrgw --net=host -v /var/lib/ceph/:/var/lib/ceph -v /etc/ceph:/etc/ceph ceph/daemon rgw
+
+挂载
+查看secret
+docker exec -it mymon more /etc/ceph/ceph.client.admin.keyring
+
+mount -t ceph 192.168.35.101:/ /mnt/cephfs/ -o name=admin,secret=AQDKrg1XqNqfNRAA93sOZ7mU56c2cKtnriCCyQ==
+
+
+==================
+直接运行ceph-demo
+
+docker daemon --selinux-enabled --storage-opt=ps dm.basesize=20G
+
+docker run -d --net=host -v /etc/ceph:/etc/ceph -e MON_IP=192.168.35.101 -e CEPH_NETWORK=192.168.35.0/24 ceph/demo
+
+
+
+
+====================
+docker stop $(docker ps -q) ; docker rm $(docker ps -a -q) ;
+docker kill $(docker ps -q) ; docker rmi $(docker images -q -a) ;
+
+
+
+
+
+
+=====================================================================================================================
+
+sudo docker run -d --net=host --privileged=true -v /etc/ceph:/etc/ceph -v /var/lib/ceph/:/var/lib/ceph -v /dev/:/dev/ -e OSD_DEVICE=/dev/vdd ceph-daemon osd_ceph_disk
+
+
+
+
+docker pull daocloud.io/library/centos:7.2.1511
+docker pull daocloud.io/library/centos:6.6
+
+
+docker pull daocloud.io/ceph/daemon
+docker pull daocloud.io/ceph/mon
+docker pull daocloud.io/ceph/osd
+
+
+docker pull index.alauda.cn/georce/mon:hammer
+docker pull index.alauda.cn/georce/osd:hammer
+docker run -itd --name=mon --net=host -e MON_NAME=mymon -e MON_IP=192.168.35.200 -v /etc/ceph:/etc/ceph index.alauda.cn/georce/mon:hammer
+
+docker run -d --name=mon --net=host -e MON_NAME=mymon -e MON_IP=192.168.35.101 -e CEPH_NETWORK=192.168.35.0/24 -v /etc/ceph:/etc/ceph index.alauda.cn/georce/mon:hammer --storage-opt dm.thinpooldev

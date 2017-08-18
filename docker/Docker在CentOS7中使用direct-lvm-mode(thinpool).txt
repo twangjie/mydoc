@@ -1,0 +1,64 @@
+http://blog.csdn.net/onlyellow/article/details/53514745
+https://docs.docker.com/engine/userguide/storagedriver/device-mapper-driver/#configure-direct-lvm-mode-for-production
+
+
+/usr/bin/docker daemon --debug --storage-driver 'devicemapper' --storage-opt 'dm.datadev=/dev/mapper/docker-thinpool' --storage-opt 'dm.metadatadev=/dev/mapper/docker-thinpoolmeta' --storage-opt 'dm.fs=xfs' --storage-opt 'dm.use_deferred_removal=true'
+
+{
+    "storage-driver": "devicemapper",
+    "storage-opts": [
+    "dm.datadev=/dev/mapper/docker-thinpool",
+    "dm.metadatadev=/dev/mapper/docker-thinpoolmeta",
+    "dm.use_deferred_removal=true",
+    "dm.fs=xfs",
+    "dm.basesize=100G"
+    ]
+}
+
+
+################ 
+
+systemctl stop docker
+rm /var/lib/docker/* -fr
+
+lvremove -f vgdocker/thinpool
+
+pvcreate -y -ff /dev/sda4
+vgcreate vgdocker /dev/sda4
+
+lvcreate -y --wipesignatures y -n thinpool vgdocker -l 95%VG
+lvcreate -y --wipesignatures y -n thinpoolmeta vgdocker -l 1%VG
+# Convert the volumes to a thin pool and a storage location for metadata for the thin pool, using the lvconvert command.
+lvconvert -y --zero n -c 512K --thinpool vgdocker/thinpool --poolmetadata vgdocker/thinpoolmeta
+
+echo "activation {
+  thin_pool_autoextend_threshold=80
+  thin_pool_autoextend_percent=20
+}" > /etc/lvm/profile/docker-thinpool.profile
+
+lvchange --metadataprofile docker-thinpool vgdocker/thinpool
+
+lvs -o+seg_monitor
+
+# 使磁盘分区变更生效
+partprobe
+
+#查看存储结构
+
+lsblk
+
+# 更新docker配置
+
+mkdir /etc/docker
+echo '{                           
+    "storage-driver": "devicemapper",
+    "storage-opts": [
+    "dm.thinpooldev=/dev/mapper/vgdocker-thinpool",
+    "dm.use_deferred_removal=true",
+    "dm.fs=xfs",
+    "dm.basesize=100G"
+    ]
+}' > /etc/docker/daemon.json 
+
+
+/usr/bin/docker daemon --debug
