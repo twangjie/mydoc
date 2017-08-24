@@ -42,6 +42,7 @@ sed -i '/osd journal size = 100/d' /opt/docker/ceph/etc/ceph/ceph.conf
 echo "[osd]" >> /opt/docker/ceph/etc/ceph/ceph.conf
 echo "journal aio = false" >> /opt/docker/ceph/etc/ceph/ceph.conf
 echo "journal dio = false" >> /opt/docker/ceph/etc/ceph/ceph.conf
+#echo "osd_pool_erasure_code_stripe_width = 65536" >> /opt/docker/ceph/etc/ceph/ceph.conf
 echo "osd journal size = 100" >> /opt/docker/ceph/etc/ceph/ceph.conf
 #echo "osd journal = /data/ramdisk/$cluster-$id/journal" >> /opt/docker/ceph/etc/ceph/ceph.conf
 
@@ -56,17 +57,10 @@ cat /opt/docker/ceph/etc/ceph/ceph.conf
 docker restart cephmon
 
 # 复制配置文件
-ssh root@host01 "rm -fr /opt/docker/ceph && mkdir -p /opt/docker/ceph && find /data/disks -name "ceph" |xargs rm -fr"
-scp -r /opt/docker/ceph/* root@host01:/opt/docker/ceph/
-
-ssh root@host02 "rm -fr /opt/docker/ceph && mkdir -p /opt/docker/ceph && find /data/disks -name "ceph" |xargs rm -fr"
-scp -r /opt/docker/ceph/* root@host02:/opt/docker/ceph/
-
-ssh root@host03 "rm -fr /opt/docker/ceph && mkdir -p /opt/docker/ceph && find /data/disks -name "ceph" |xargs rm -fr"
-scp -r /opt/docker/ceph/* root@host03:/opt/docker/ceph/
-
-ssh root@host04 "rm -fr /opt/docker/ceph && mkdir -p /opt/docker/ceph && find /data/disks -name "ceph" |xargs rm -fr"
-scp -r /opt/docker/ceph/* root@host04:/opt/docker/ceph/
+ssh root@host01 "rm -fr /opt/docker/ceph && mkdir -p /opt/docker/ceph && find /data/disks -name "ceph" |xargs rm -fr" && scp -r /opt/docker/ceph/* root@host01:/opt/docker/ceph/
+ssh root@host02 "rm -fr /opt/docker/ceph && mkdir -p /opt/docker/ceph && find /data/disks -name "ceph" |xargs rm -fr" && scp -r /opt/docker/ceph/* root@host02:/opt/docker/ceph/
+ssh root@host03 "rm -fr /opt/docker/ceph && mkdir -p /opt/docker/ceph && find /data/disks -name "ceph" |xargs rm -fr" && scp -r /opt/docker/ceph/* root@host03:/opt/docker/ceph/
+ssh root@host04 "rm -fr /opt/docker/ceph && mkdir -p /opt/docker/ceph && find /data/disks -name "ceph" |xargs rm -fr" && scp -r /opt/docker/ceph/* root@host04:/opt/docker/ceph/
 
 # 启动第二个和第三个Monitor
 #ssh host02 "docker run -d --net=host --name=cephmon -v /opt/docker/ceph/etc/ceph:/etc/ceph -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph -e MON_IP=192.168.35.102 -e CEPH_PUBLIC_NETWORK=192.168.35.0/24 $CEPH_DOCKER_IMAGE mon"
@@ -77,6 +71,9 @@ ssh host04 "docker run -d --net=host --name=cephmon -v /opt/docker/ceph/etc/ceph
 docker run -d --net=host --name=cephmgr -v /opt/docker/ceph/etc/ceph:/etc/ceph  -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph/ $CEPH_DOCKER_IMAGE mgr
 
 # 在三台机器上启动osd (必须添加参数--pid=host，否则osd会出错，并占用大量cpu)
+
+rm -f /data/ramdisk/*
+rm -fr /data/disks/{1..3}/ceph
 docker run -d --privileged=true --pid=host --net=host --name=cephosd1 -v /opt/docker/ceph/etc/ceph:/etc/ceph -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph/ -v /dev/:/dev/ -v /data/disks/1/ceph/osd:/var/lib/ceph/osd -v /data/ramdisk:/data/ramdisk -e JOURNAL_DIR=/data/ramdisk $CEPH_DOCKER_IMAGE osd_directory
 
 docker run -d --privileged=true --pid=host --net=host --name=cephosd2 -v /opt/docker/ceph/etc/ceph:/etc/ceph  -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph/ -v /dev/:/dev/ -v /data/disks/2/ceph/osd:/var/lib/ceph/osd -v /data/ramdisk:/data/ramdisk -e JOURNAL_DIR=/data/ramdisk  $CEPH_DOCKER_IMAGE osd_directory
@@ -88,7 +85,15 @@ docker run -d --privileged=true --pid=host --net=host --name=cephosd3 -v /opt/do
 docker run -d --net=host --name=cephmds -v /opt/docker/ceph/etc/ceph:/etc/ceph  -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph/ -e CEPHFS_CREATE=1 $CEPH_DOCKER_IMAGE mds
 
 # 启动RGW，并且映射80端口
-docker run -d --net=host --name=cephrgw -v /opt/docker/ceph/etc/ceph:/etc/ceph  -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph/ -p 8080:80 $CEPH_DOCKER_IMAGE rgw
+docker run -d --net=host --name=cephrgw --log-driver=none -v /opt/docker/ceph/etc/ceph:/etc/ceph  -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph/ -p 8080:80 $CEPH_DOCKER_IMAGE rgw
+
+# rgw erasure code
+ceph osd pool delete default.rgw.meta default.rgw.meta --yes-i-really-really-mean-it
+ceph osd pool create default.rgw.meta 64 64
+
+ceph osd pool delete default.rgw.buckets.data default.rgw.buckets.data --yes-i-really-really-mean-it
+ceph osd pool create default.rgw.buckets.data 64 64 erasure 
+
 
 # 启动REST服务
 docker run -itd --restart=always --name=cephrest --privileged=true --net=host -e MON_NAME=cephmon -e MON_IP=127.0.0.1 -v /opt/docker/ceph/var/lib/ceph/:/var/lib/ceph -v /opt/docker/ceph/etc/ceph:/etc/ceph $CEPH_DOCKER_IMAGE restapi
@@ -115,12 +120,13 @@ mount -t ceph 192.168.35.102:6789:/ /mnt/cephfs -o name=admin,secret=AQA4W5BZYpN
 http://docs.ceph.com/docs/master/man/8/radosgw-admin/
 http://docs.ceph.org.cn/man/8/radosgw-admin/
 
-1.创建radosgw用户:
+# 1.创建radosgw用户:
 docker exec -it cephmon bash -c "radosgw-admin user create --display-name=test --uid=test"
 
-2.创建子用户(swift):
+# 2.创建子用户(swift):
 docker exec -it cephmon bash -c "radosgw-admin subuser create --uid=test --subuser=test:swift --access=full"
-
+# 修改子用户的密码
+docker exec -it cephmon bash -c "radosgw-admin key create --subuser=test:swift --key-type=swift --secret=testswift"
 
 ================================================================================
 RADOS 性能测试：
@@ -135,10 +141,11 @@ seconds：测试所持续的秒数
 -t：读/写并行数，默认为 16
 --no-cleanup 表示测试完成后不删除测试用数据。在做读测试之前，需要使用该参数来运行一遍写测试来产生测试数据，在全部测试结束后可以运行 rados -p <pool_name> cleanup 来清理所有测试数据。
 
-ceph osd pool create scbench 100 100
+ceph osd pool create scbench 64 64
 
 写数据：
 rados bench -p scbench 10 write --no-cleanup
+rados bench -t 64 -o 128K -p scbench 10 write --no-cleanup
 
 顺序读：
 rados bench -p scbench 10 seq
@@ -190,10 +197,10 @@ OSDID=5
 rm -fr /data/disks/2/ceph
 rm -f /data/ramdisk/journal.$OSDID
 
-2.2 将osd.5标记为out
+# 2.2 将osd.5标记为out
 docker exec cephmon ceph osd out osd.$OSDID
 
-2.3 从Ceph集群删除osd.5
+# 2.3 从Ceph集群删除osd.5
 docker exec cephmon ceph auth del osd.$OSDID
 docker exec cephmon ceph osd crush remove osd.$OSDID
 docker exec cephmon ceph osd rm osd.$OSDID

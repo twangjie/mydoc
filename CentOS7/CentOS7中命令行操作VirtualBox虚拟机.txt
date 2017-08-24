@@ -1,0 +1,124 @@
+CentOS7中命令行操作VirtualBox虚拟机
+
+#安装VirtualBox和相关工具
+wget http://download.virtualbox.org/virtualbox/5.1.18/VirtualBox-5.1-5.1.18_114002_el7-1.x86_64.rpm
+
+yum install gcc make kernel-devel lrzsz VirtualBox-5.1-5.1.18_114002_el7-1.x86_64.rpm
+
+#配置VirtualBox kernel modules
+/sbin/vboxconfig
+
+#VBoxManage 扩展
+#通过 Virtual Box 下载页下载，扩展包的版本和安装的 VirtualBox 版本需要一致！
+wget http://download.virtualbox.org/virtualbox/5.1.18/Oracle_VM_VirtualBox_Extension_Pack-5.1.18-114002.vbox-extpack
+VBoxManage extpack install Oracle_VM_VirtualBox_Extension_Pack-5.1.18-114002.vbox-extpack
+
+#运行下面这条命令，确认 VBoxManage 已经成功安装在机器上。
+VBoxManage list extpacks
+
+basefolder=/opt/VirtualBoxVMs
+mkdir -p $basefolder
+
+#修改VirtualBox默认虚拟机存储位置
+VBoxManage setproperty machinefolder $basefolder
+
+
+pushd $basefolder
+VM=centos7
+
+# 创建虚拟机
+VBoxManage createvm --name $VM --register --basefolder=$basefolder
+
+# 在指定位置创建虚拟硬盘
+VBoxManage createhd --filename $VM/$VM.vdi --size 307200
+
+# 添加SATA控制器
+VBoxManage storagectl $VM --name "SATA Controller" --add sata --controller IntelAhci --bootable on
+
+# 在SATA控制器中挂载虚拟硬盘
+VBoxManage storageattach $VM --storagectl "SATA Controller" --port 0 --device 0 --type hdd --medium $VM/$VM.vdi
+
+# 添加IDE控制器
+VBoxManage storagectl $VM --name "IDE Controller" --add ide
+
+# 在IDE控制器中添加DVD并挂载ISO镜像
+VBoxManage storageattach $VM --storagectl "IDE Controller" --port 0 --device 0 --type dvddrive --medium /root/CentOS-7-x86_64-Minimal-1511.iso
+
+# 配置CPU
+VBoxManage modifyvm $VM --cpus 4 --hwvirtex on --vram 64
+VBoxManage modifyvm $VM --ioapic on
+VBoxManage setextradata $VM "VBoxInternal/CPUM/SSE4.1" "1"
+VBoxManage setextradata $VM "VBoxInternal/CPUM/SSE4.2" "1"
+
+# 配置虚拟硬件相关参数
+VBoxManage modifyvm $VM --boot1 dvd --boot2 disk --boot3 none --boot4 none
+VBoxManage modifyvm $VM --memory 8192 --vram 128
+VBoxManage modifyvm $VM --nic1 bridged --bridgeadapter1 bond0 --nictype1 82545EM --cableconnected1 on
+VBoxManage modifyvm $VM --audio none
+
+# 配置操作系统类型
+VBoxManage modifyvm $VM --ostype RedHat_64
+
+# 修改vrdp端口
+VBoxManage modifyvm $VM --vrde on --vrdeport 33890
+
+#启动VM
+VBoxManage startvm $VM --type headless
+#或
+#VBoxHeadless -s $VM --vrde on 
+
+#VM关机
+VBoxManage controlvm $VM poweroff
+VBoxManage controlvm $VM acpipowerbutton
+
+# 修改启动顺序
+VBoxManage modifyvm $VM --boot1 disk --boot2 dvd --boot3 none --boot4 none
+
+#eject the DVD
+VBoxManage storageattach $VM --storagectl "IDE Controller" --port 0 --device 0 --type dvddrive --medium none
+
+#创建快照
+VBoxManage snapshot $VM take "init_os_centos7_2_1511_minimal"
+
+#恢复快照
+VBoxManage snapshot $VM restore <name of snapshot>
+
+#添加共享目录
+VBoxManage sharedfolder add "kudu-demo" --name disk_0 --hostpath /data/disks/0/vm_shared --automount
+
+删除共享目录
+VBoxManage sharedfolder remove "kudu-demo" --name disk_2
+
+#克隆虚拟机(从指定快照)
+VBoxManage clonevm $VM --name $VM"_1" --snapshot "init_os_centos7_2_1511_minimal" --register --basefolder=$basefolder
+VBoxManage modifyvm $VM"_1" --vrde on --vrdeport 33891
+VBoxManage startvm $VM"_1" --type headless
+
+VBoxManage clonevm $VM --name $VM"_2" --snapshot "init_os_centos7_2_1511_minimal" --register --basefolder=$basefolder
+VBoxManage modifyvm $VM"_2" --vrde on --vrdeport 33892
+VBoxManage startvm $VM"_2" --type headless
+
+# 删除虚拟机
+VBoxManage unregistervm centos7 --delete
+
+# 关机
+VBoxManage controlvm "centos7" acpipowerbutton
+VBoxManage controlvm "centos7_1" acpipowerbutton
+VBoxManage controlvm "centos7_2" acpipowerbutton
+
+
+#移动虚拟机至另外一个目录
+VBoxManage unregistervm centos7_2
+mv /root/VirtualBox\ VMs/centos7_2 /opt/VirtualBoxVMs/
+VBoxManage registervm /opt/VirtualBoxVMs/centos7_2/centos7_2.vbox
+
+
+VBoxManage clonevm $VM --name $VM"_3" --snapshot "init_os_centos7_2_1511_minimal" --register --basefolder=$basefolder
+VBoxManage modifyvm $VM"_3" --vrdeport 33893
+VBoxManage startvm $VM"_3" --type headless
+
+#导入、导出虚拟机
+VBoxManage export tip -o tip.ova
+VBoxManage import tip.ova --vsys 0 --cpus 2 --memory 1024 --vmname tip --options keepallmacs
+
+

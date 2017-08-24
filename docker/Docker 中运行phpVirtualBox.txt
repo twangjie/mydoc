@@ -1,0 +1,26 @@
+Docker 中运行phpVirtualBox
+
+VirtualBox 服务器IP:       192.168.35.102
+phpVirtualBox 服务器IP:    192.168.35.10
+
+
+# 修改phpVirtualBox的配置
+echo 'VBOXWEB_USER=root' >> /etc/default/virtualbox
+echo 'VBOXWEB_HOST=0.0.0.0' >> /etc/default/virtualbox
+
+# 重启vboxweb-service服务
+systemctl restart vboxweb-service
+
+
+#添加vbox用户
+useradd vbox
+
+#将vbox用户的密码修改为vbox
+passwd vbox
+
+
+# 在192.168.35.10服务器上运行
+docker run --name vbox_http_102 --restart=always -p 10012:80 -e ID_PORT_18083_TCP=192.168.35.102:18083 -e ID_NAME=serverName -e ID_USER=vbox -e ID_PW='vbox' -d jazzdd/phpvirtualbox
+
+
+
