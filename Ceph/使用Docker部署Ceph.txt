@@ -33,6 +33,10 @@ docker run -d --net=host --name=cephmon -v /opt/docker/ceph/etc/ceph:/etc/ceph -
 # 免认证(luminous v12.1.2 osd_directory需要)
 # sed -i 's/cephx/none/g' /opt/docker/ceph/etc/ceph/ceph.conf
 
+######
+##ceph auth add osd.3 osd 'allow *' mon 'allow profile osd' -i /var/lib/ceph/osd/ceph-3/keyring
+##
+
 # 修改ceph配置
 echo "mon_allow_pool_delete = true" >> /opt/docker/ceph/etc/ceph/ceph.conf 
 
