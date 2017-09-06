@@ -1,0 +1,28 @@
+docker 中运行git httpbackend
+
+# 使用/opt/gitrepo作为git的根目录
+mkdir -p /opt/gitrepo
+
+# 创建一个仓库：test.git
+mkdir -p /opt/gitrepo/test.git
+git init --bare /opt/gitrepo/test.git
+
+# 使用openssl生成htpasswd密码(用户名、密码：git)
+yum -y install openssl
+printf "git:$(openssl passwd -crypt gitgit)\n" > /opt/gitrepo/htpasswd
+
+# 启动git-http-backend容器
+docker rm -f httpgit
+docker run -d --restart=always --name=httpgit -p 4080:80 -v /opt/gitrepo:/git ynohat/git-http-backend
+
+# 修改nginx参数
+docker exec httpgit sh -c "
+cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak;
+sed 's/\/www\/htpasswd/\/git\/htpasswd/g' /etc/nginx/nginx.conf > /root/new.conf;
+sed 's/#auth_basic/auth_basic/g' /root/new.conf > /etc/nginx/nginx.conf;
+cat /etc/nginx/nginx.conf;
+rm -f /root/new.conf
+"
+
+docker exec httpgit sh -c "nginx -s reload"
+
