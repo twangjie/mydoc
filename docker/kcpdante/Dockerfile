@@ -1,6 +1,6 @@
 # docker build -t kcpdante .
 # docker build -t kcpdante --build-arg=HTTP_PROXY=http://192.168.35.3:8118/ --build-arg=HTTPS_PROXY=http://192.168.35.3:8118/ .
-# docker run -it --rm -p 22000:21000/udp kcpdante
+# docker run -itd --restart=always --name kcpsocks5 -p 22000:22000/udp kcpdante
 
 FROM kcptun:latest
 MAINTAINER Wang Jie <twj31470952@gmail.com>
