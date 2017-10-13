@@ -10,8 +10,23 @@ firewall-cmd --permanent --zone=public --add-port=21000/udp
 firewall-cmd --permanent --zone=public --add-port=20000/tcp
 firewall-cmd --permanent --zone=public --add-port=80/tcp
 
-firewall-cmd --reload
-firewall-cmd --list-all
+firewall-cmd --permanent --zone=public --remove-port=8080/tcp
 
+
+firewall-cmd --reload && firewall-cmd --list-all
 
 firewall-cmd --add-port=31600/tcp
+
+# rich rule
+
+# 指定IP段
+firewall-cmd --permanent --zone=public --add-rich-rule "rule family="ipv4" source address="172.17.0.0/24" accept"
+
+# 指定IP段、端口和协议
+firewall-cmd --permanent --zone=public --add-rich-rule "rule family="ipv4" source address="172.17.0.0/16" port port="30000" protocol="tcp" accept"
+firewall-cmd --permanent --zone=public --remove-rich-rule "rule family="ipv4" source address="172.17.0.0/16" port port="30000" protocol="tcp" accept"
+
+firewall-cmd --reload && firewall-cmd --list-all
+
+
+
