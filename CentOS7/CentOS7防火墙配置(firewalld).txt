@@ -19,11 +19,14 @@ firewall-cmd --add-port=31600/tcp
 
 # rich rule
 
-# Ö¸¶¨IP¶Î
+# æŒ‡å®šIPæ®µ
 firewall-cmd --permanent --zone=public --add-rich-rule "rule family="ipv4" source address="172.17.0.0/24" accept"
 
-# Ö¸¶¨IP¶Î¡¢¶Ë¿ÚºÍĞ­Òé
+# æŒ‡å®šIPæ®µã€ç«¯å£å’Œåè®®
 firewall-cmd --permanent --zone=public --add-rich-rule "rule family="ipv4" source address="172.17.0.0/16" port port="30000" protocol="tcp" accept"
+
+firewall-cmd --list-rich-rules
+
 firewall-cmd --permanent --zone=public --remove-rich-rule "rule family="ipv4" source address="172.17.0.0/16" port port="30000" protocol="tcp" accept"
 
 firewall-cmd --reload && firewall-cmd --list-all
