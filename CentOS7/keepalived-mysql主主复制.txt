@@ -1,0 +1,173 @@
+
+http://www.cnblogs.com/kristain/articles/4142970.html
+http://blog.csdn.net/cjfeii/article/details/48623079
+http://lgdvsehome.blog.51cto.com/3360656/1591525?utm_source=tuicool&utm_medium=referral
+http://www.linuxidc.com/Linux/2015-06/118767.htm
+
+====CentOS7.2
+关闭selinx firewalld并重启
+yum install keepalived ipvsadm 
+
+
+虚拟IP: 192.168.35.100
+host01: 192.168.35.101
+host02: 192.168.35.102
+
+配置Mysql双主复制
+==========host01(192.168.35.101)=====
+[mysqld]
+
+skip-name-resolve
+character-set-server=utf8
+binlog_format = mixed
+innodb_file_per_table=1
+
+server-id = 1
+log-bin = bin
+expire-logs-days=10
+max-binlog-size=1024M
+relay-log = relay-bin
+binlog-ignore-db = mysql,information_schema    #忽略写入binlog日志的库 
+#skip-slave-start = 1
+auto_increment_offset = 1
+#假设需要将来可能需要2台服务器做备份， 所以auto-increment-increment 设为2
+auto_increment_increment = 2
+#log-slave-updates这个参数用来配置从服务器的更新是否写入二进制日志，这个选项默认是不打开的，但是，如果这个从服务器B是服务器A的从服务器，同时还作为服务器C的主服务器，那么就需要打开这个选项，这样它的从服务器C才能获得它的二进制日志进行同步操作
+log_slave_updates = 1
+sync_binlog=5
+
+==========host02(192.168.35.102)=====
+[mysqld]
+
+skip-name-resolve
+character-set-server=utf8
+binlog_format = mixed
+innodb_file_per_table=1
+
+server-id = 2
+log-bin = bin
+relay-log = relay-bin
+binlog-ignore-db = mysql,information_schema    #忽略写入binlog日志的库   
+#skip-slave-start = 1
+auto_increment_offset = 2
+auto_increment_increment = 2
+log_slave_updates = 1
+
+
+#修改配置后，重启mysql
+
+
+---- 在 host1 上执行：
+命令（show master status;）查看master_log_file和master_log_pos
++------------+----------+--------------+--------------------------+
+| File       | Position | Binlog_Do_DB | Binlog_Ignore_DB         |
++------------+----------+--------------+--------------------------+
+| bin.000001 |      245 |              | mysql,information_schema |
++------------+----------+--------------+--------------------------+
+
+---- 在 host2 上执行：
+命令（show master status;）查看master_log_file和master_log_pos
++------------+----------+--------------+--------------------------+
+| File       | Position | Binlog_Do_DB | Binlog_Ignore_DB         |
++------------+----------+--------------+--------------------------+
+| bin.000002 |      333 |              | mysql,information_schema |
++------------+----------+--------------+--------------------------+
+
+---- 在 host1 上执行：
+mysql> 
+GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'replication'@'192.168.35.%' IDENTIFIED BY 'replication';
+change master to
+	master_host='192.168.35.10', 
+	master_user='replication', 
+	master_password='replication', 
+	master_log_file='bin.000003', 
+	master_log_pos=2981;
+start slave;
+
+change master to master_host='41.74.32.109', master_user='replication', master_password='replication', master_log_file='bin.000003', master_log_pos=41111409;
+	
+---- 在 host2 上执行：
+mysql> 
+GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'replication'@'192.168.35.%' IDENTIFIED BY 'replication';
+change master to
+	master_host='192.168.35.101', 
+	master_user='replication', 
+	master_password='replication', 
+	master_log_file='bin.000001', 
+	master_log_pos=245;
+    
+change master to master_host='41.74.32.111', master_user='replication', master_password='replication', master_log_file='bin.000003', master_log_pos=41111220;
+
+start slave;
+
+-------备份mysql数据库(Online backup)
+mysqldump -u root -prootroot --all-databases --lock-all-tables --master-data=2 > mysql-db-201701161739.bak
+--- 恢复
+mysql -uroot -prootroot < mysql-db-201701161739.bak
+
+==============Keepalived 配置
+
+bal_defs {
+   notification_email {
+	 test@test.com
+   }
+   notification_email_from test@test.com
+   smtp_server 127.0.0.1
+   smtp_connect_timeout 3
+   
+   #标识，双主相同
+   router_id LVS_Mysql
+}
+vrrp_instance HA_1 {
+	
+	#两台机器上都配置为BACKUP
+	state BACKUP  
+	
+	interface enp0s3
+	virtual_router_id 80
+	
+	#优先级host01高于host02
+	priority 90
+	
+	advert_int 2
+	
+	#设置 nopreempt 防止抢占资源,仅配置在host01上，在host02上不要这句配置
+	#不主动抢占资源，只在master这台优先级高的设置，backup不设置
+	nopreempt
+	
+	authentication {
+		auth_type PASS
+		auth_pass 1111
+	}
+	virtual_ipaddress {
+	  192.168.35.100
+	}
+}
+virtual_server 192.168.35.100 3306 {
+	delay_loop 1
+	lb_algo wlc
+	lb_kind DR
+	nat_mask 255.255.255.0
+	protocol TCP
+	persistence_timeout 60
+	real_server 127.0.0.1 3306 {
+		weight 1
+		notify_down /opt/keepalived/mysql_ha_check.sh
+		TCP_CHECK {
+			connect_port 3306
+			connect_timeout 1
+			nb_get_retry 2
+			delay_before_retry 1
+		}
+	}
+}
+
+
+================/opt/keepalived/mysql_ha_check.sh 脚本========
+#!/bin/bash
+
+#counter=$(ps -C mysqld --no-heading|wc -l)
+#if [ "${counter}" = "0" ]; then
+#    service keepalived stop
+#fi
+pkill keepalived
