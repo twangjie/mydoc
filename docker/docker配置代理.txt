@@ -1,0 +1,9 @@
+mkdir /etc/systemd/system/docker.service.d
+
+echo "[Service]" > /etc/systemd/system/docker.service.d/http-proxy.conf
+echo 'Environment="HTTP_PROXY=http://192.168.35.3:7070/"' >> /etc/systemd/system/docker.service.d/http-proxy.conf
+
+cat /etc/systemd/system/docker.service.d/http-proxy.conf
+
+systemctl daemon-reload
+systemctl restart docker
