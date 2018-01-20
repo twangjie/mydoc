@@ -1,0 +1,11 @@
+prefix=/f/tools/ffmpeg/libx264
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: x264
+Description: H.264 video encoder
+Version: 0.0
+Libs: -L$/f/tools/ffmpeg/libx264/lib -lx264
+Libs.private: 
+Cflags: -I/f/tools/ffmpeg/libx264/include

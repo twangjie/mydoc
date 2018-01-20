@@ -1,0 +1,5 @@
+./configure --toolchain=msvc --prefix=/f/tools/ffmpeg/ffmpeg --enable-shared --enable-x86asm --enable-asm --enable-avresample --enable-nonfree --enable-gpl --extra-cflags='-DWIN32_LEAN_AND_MEAN'
+
+# configure完成后，在config.h中做如下修改：
+# 1、将config.h中CC_IDENT宏里面的中文去掉；
+# 2、将CONFIG_FFPLAY定义从0改为1（#define CONFIG_FFPLAY 1）

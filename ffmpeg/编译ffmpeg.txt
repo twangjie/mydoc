@@ -1,0 +1,254 @@
+编译ffmpeg和libx264
+
+已测试版本 ffmpeg-2.6.1、ffmpeg-2.8.6、ffmpeg-3.0、ffmpeg-3.4.1
+
+参考：
+mingw编译ffmpeg+x265过程记录
+http://blog.csdn.net/tttyd/article/details/39253281
+
+windows编译ffmpeg2.2.4并外挂h265
+http://blog.csdn.net/zengraoli/article/details/37518537
+
+ffmpeg官方编译文档
+http://www.ffmpeg.org/platform.html#Microsoft-Visual-C_002b_002b-or-Intel-C_002b_002b-Compiler-for-Windows
+
+Intel C++ Compiler编译x264
+https://software.intel.com/en-us/articles/building-x264-with-intel-compiler-for-windows
+
+用VC编译x264
+http://trac.ffmpeg.org/wiki/CompilationGuide/MSVC
+
+
+从环境变量中移除MinGW/gcc相关的PATH（如果有）
+
+一、安装Windows编译环境
+安装Visual Studio 2015
+安装Intel Parallel Studio XE 2016
+
+二、安装 MSYS2
+1. 到 http://sourceforge.net/projects/msys2/ 下载安装。
+安装位置设为 D:\msys2
+2. 运行 D:\msys2\mingw32_shell.bat和D:\msys2\mingw64_shell.bat
+更新本地包数据
+pacman -Sy
+
+列出可用的包
+pacman -Sl
+
+升级核心包
+pacman -S --needed filesystem msys2-runtime bash libreadline libiconv libarchive libgpgme libcurl pacman ncurses libintl
+
+升级其他包
+pacman -Su
+
+安装必要组件
+pacman -S make pkgconfig diffutils
+pacman -S mingw-w64-i686-gcc mingw-w64-x86_64-gcc mingw-w64-i686-glib2 mingw-w64-x86_64-glib2 mingw-w64-i686-yasm mingw-w64-x86_64-yasm mingw-w64-i686-pkg-config mingw-w64-x86_64-pkg-config
+ 
+查找msys的link.exe，重命名之：
+$ which link
+/bin/link.exe
+$ mv /bin/link.exe /bin/msyslink.exe
+
+
+3，源码编译x264(git clone git://git.videolan.org/x264.git)
+
+下载nasm(http://www.nasm.us/pub/nasm/releasebuilds/2.13.02/win32/nasm-2.13.02-win32.zip)
+解压缩到 x264的根目录
+
+3.1(推荐)使用Intel C++ Compiler编译x264（https://software.intel.com/en-us/articles/building-x264-with-intel-compiler-for-windows）
+从Intel C++ Command Prompt 启动msys2
+启动：Compiler 16.0 Update 1 for Intel 64 Visual Studio 2015 environment
+执行：D:\msys2\mingw64_shell.bat
+CC=icl ./configure --prefix=/f/ffmpeg/x64/libx264 --enable-shared --enable-static --bit-depth=10 --enable-pic --extra-cflags="-DNO_PREFIX"
+
+32位：
+启动：Compiler 16.0 Update 1 for IA-32 Visual Studio 2015 environment
+执行：D:\msys2\mingw32_shell.bat
+CC=icl ./configure --prefix=/f/ffmpeg/x86/libx264 --enable-shared --enable-static --bit-depth=10 --enable-pic --extra-cflags="-DNO_PREFIX"
+
+64位：
+启动VS2015 x64 本机工具命令提示符
+执行D:\msys2\mingw64_shell.bat
+CC=cl ./configure --prefix=/f/ffmpeg/x64/libx264 --enable-shared --enable-static --bit-depth=10 --enable-pic --extra-cflags="-DNO_PREFIX"
+
+32位：
+启动VS2015 x86 本机工具命令提示符
+执行D:\msys2\mingw32_shell.bat
+CC=cl ./configure --prefix=/f/tools/ffmpeg/libx264/x86 --enable-shared --enable-static --bit-depth=10 --enable-pic --extra-cflags="-DNO_PREFIX"
+make
+make install
+
+将x264.h、x264_config.h拷贝到f:\ffmpeg\x64\ffmpeg-src和f:\ffmpeg\x86\ffmpeg-src中；
+64位：
+如果动态链接x264：将libx264将libx264.dll.lib拷贝到f:\ffmpeg\x64\ffmpeg-src中，并重命名为libx264.lib；
+如果静态链接x264，将libx264.lib拷贝到f:\ffmpeg\x64\ffmpeg-src中。
+
+32位：
+如果动态链接x264：将libx264将libx264.dll.lib拷贝到f:\ffmpeg\x86\ffmpeg-src中，并重命名为libx264.lib；
+如果静态链接x264，将libx264.lib拷贝到f:\ffmpeg\x86\ffmpeg-src中。
+
+3.2使用gcc编译x264
+执行：
+D:\msys2\mingw64_shell.bat
+./configure --prefix=/f/ffmpeg/x64/libx264 --enable-shared --enable-static --bit-depth=10 --enable-pic
+make
+make install
+或
+D:\msys2\mingw32_shell.bat
+./configure --prefix=/f/ffmpeg/x86/libx264 --enable-shared --enable-static --bit-depth=10 --enable-pic
+make
+make install
+
+如果没有生成libx264.lib，则使用VC自带的lib生成工具“LIB”，生成“libx264.lib”文件
+lib /machine:X86 /def:libx264.def /out:libx264.lib
+或
+lib /machine:X64 /def:libx264.def /out:libx264.lib
+将32位x264.h、x264_config.h、libx264.lib拷贝到f:\ffmpeg\x86\ffmpeg-src中;
+将64位x264.h、x264_config.h、libx264.lib拷贝到f:\ffmpeg\x64\ffmpeg-src中;
+
+4,编译x265
+git clone https://github.com/videolan/x265.git
+进入vc14-x86或vc14-x64目录，双击build-all.bat
+
+在弹出的cmake-gui中，修改prefix到F:\ffmpeg\x64\libx265或F:\ffmpeg\x86\libx265。
+打开x265.sln，然后选择RelWithDebInfo，编译INSTALL工程。
+生成成功后，F:\ffmpeg\x64\libx265或F:\ffmpeg\x86\libx265将出现生成好的库。
+
+32位：将F:\ffmpeg\x86\libx265\lib\libx265.lib拷贝到f:\ffmpeg\x86\ffmpeg-src中，并重命名为x265.lib；
+64位：将F:\ffmpeg\x64\libx265\lib\libx265.lib拷贝到f:\ffmpeg\x64\ffmpeg-src中，并重命名为x265.lib；
+
+将 x265.pc拷贝的msys2的\usr\lib\pkgconfig文件夹下
+
+下载SDL2的源码（用于ffplay）
+https://www.libsdl.org/release/SDL2-2.0.7.zip
+解压后进入VisualC目录，用VC编译。
+
+直接使用VC编译好的版本：
+https://www.libsdl.org/release/SDL2-devel-2.0.7-VC.zip
+
+64位头文件解压到f:\ffmpeg\x64\libSDL\include
+64位lib文件解压到f:\ffmpeg\x64\libSDL\lib，并复制SDL2.lib和SDL2main.lib到F:\ffmpeg\x64\ffmpeg-src
+32位头文件解压到f:\ffmpeg\x86\libSDL\include
+32位lib文件解压到f:\ffmpeg\x86\libSDL\lib，并复制SDL2.lib和SDL2main.lib到F:\ffmpeg\x86\ffmpeg-src
+
+通过MSYS2安装libSDL
+pacman -S mingw-w64-x86_64-SDL mingw-w64-i686-SDL
+
+-----------------------------------------------------------------------------------------------------------
+下载zlib源码(https://zlib.net/zlib-1.2.11.tar.xz).解压到f:\ffmpeg\x86\zlib和f:\ffmpeg\x64\zlib
+Edit win32/Makefile.msc so that it uses -MT instead of -MD, since this is how FFmpeg is built as well.
+Edit zconf.h and remove its inclusion of unistd.h. This gets erroneously included when building FFmpeg.
+Run nmake -f win32/Makefile.msc
+
+32位：
+拷贝zconf.h、zlib.h、zlib.lib到f:\ffmpeg\x86\ffmpeg-src
+64位：
+拷贝zconf.h、zlib.h、zlib.lib到f:\ffmpeg\x64\ffmpeg-src
+-----------------------------------------------------------------------------------------------------------
+
+5.编译ffmpeg
+下载ffmpeg(http://ffmpeg.org/download.html),并解压到f:\ffmpeg\ffmpeg-src
+拷贝SDL的SDL.lib和SDLmain.lib到f:\ffmpeg\ffmpeg-src
+
+5.1参考下面链接准备环境：
+http://ffmpeg.org/platform.html#Microsoft-Visual-C_002b_002b-or-Intel-C_002b_002b-Compiler-for-Windows
+
+如果使用VC2012或之前的vc编译环境，则:
+C99-to-C89 Converter & Wrapper (if using MSVC 2012 or earlier)
+msinttypes (if using MSVC 2012 or earlier)
+将inttypes.h、stdint.h放到f:\ffmpeg\x64\ffmpeg-src和f:\ffmpeg\x86\ffmpeg-src中
+
+
+(1)、从gcc编译的libx264中导出lib（如果编译libx264后未生成lib文件）
+下载pexports: http://iweb.dl.sourceforge.net/project/mingw/MinGW/Extension/pexports/pexports-0.46/pexports-0.46-mingw32-bin.tar.xz
+
+pexports libx264-142.dll > libx264-142.def 
+lib /machine:x86 /def:libx264-142.def /out:x264.lib
+或
+lib /machine:x64 /def:libx264-142.def /out:x264.lib
+
+(2)、拷贝x264的x264_config.h、x264.h和x264.lib到ffmpeg-src文件夹里面;
+	 拷贝x265的x265_config.h、x265.h和x265.lib到ffmpeg-src文件夹里面。
+
+(3)、拷贝x265相关资源
+将lib\pkgconfig\x265.pc复制到D:\msys2\mingw64\lib\pkgconfig\和D:\msys2\mingw32\lib\pkgconfig中
+将D:\msys2\mingw64\lib\pkgconfig\x265.pc中的prefix修改为 prefix=/f/ffmpeg/x64/libx265
+将D:\msys2\mingw32\lib\pkgconfig\x265.pc中的prefix修改为 prefix=/f/ffmpeg/x86/libx265
+
+(4)、编译ffmpeg
+
+使用VC++
+从Visual Studio Command Prompt 启动msys2
+64位：
+./configure --toolchain=msvc --enable-asm --enable-yasm  --arch=amd64 --prefix=/f/ffmpeg/x64/ffmpeg --enable-shared --enable-avresample --enable-nonfree --enable-gpl --enable-libx264 --enable-libx265 --extra-cflags='/If:\ffmpeg\x64\libx264\include /If:\ffmpeg\x64\libx265\include /If:\ffmpeg\x64\libSDL\include /If:\ffmpeg\x64\zlib' --extra-ldflags='/LIBPATH:F:\ffmpeg\x64\libx264\lib /LIBPATH:F:\ffmpeg\x64\libx265\lib /LIBPATH:F:\ffmpeg\x64\libSDL\lib /LIBPATH:F:\ffmpeg\x64\zlib'
+
+32位：
+./configure --toolchain=msvc --enable-asm --enable-yasm --prefix=/f/ffmpeg/x86/ffmpeg --enable-shared --enable-avresample --enable-nonfree --enable-gpl --enable-libx264 --enable-libx265 --extra-cflags='/If:\ffmpeg\x86\libx264\include /If:\ffmpeg\x86\libx265\include /If:\ffmpeg\x86\libSDL\include /If:\ffmpeg\x86\zlib' --extra-ldflags='/LIBPATH:F:\ffmpeg\x86\libx264\lib /LIBPATH:F:\ffmpeg\x86\libx265\lib  /LIBPATH:F:\ffmpeg\x86\libSDL\lib /LIBPATH:F:\ffmpeg\x86\zlib'
+
+使用Intel C++ Compiler
+64位：
+启动：Compiler 16.0 Update 1 for Intel 64 Visual Studio 2015 environment
+执行：D:\msys2\mingw64_shell.bat
+./configure --toolchain=icl --enable-asm --enable-yasm  --arch=amd64 --prefix=/f/ffmpeg/x64/ffmpeg --enable-shared --enable-avresample --enable-nonfree --enable-gpl --enable-libx264 --enable-libx265 --extra-cflags='/If:\ffmpeg\x64\libx264\include /If:\ffmpeg\x64\libx265\include /If:\ffmpeg\x64\libSDL\include' --extra-ldflags='/LIBPATH:F:\ffmpeg\x64\libx264\lib /LIBPATH:F:\ffmpeg\x64\libx265\lib /LIBPATH:F:\ffmpeg\x64\libSDL\lib'
+
+32位：
+启动：Compiler 16.0 Update 1 for IA-32 Visual Studio 2015 environment
+执行：D:\msys2\mingw32_shell.bat
+./configure --toolchain=icl --enable-asm --enable-yasm  --arch=x86 --prefix=/f/ffmpeg/x86/ffmpeg --enable-shared --enable-avresample --enable-nonfree --enable-gpl --enable-libx264 --enable-libx265 --extra-cflags='/If:\ffmpeg\x86\libx264\include /If:\ffmpeg\x86\libx265\include /If:\ffmpeg\x86\libSDL\include' --extra-ldflags='/LIBPATH:F:\ffmpeg\x86\libx264\lib /LIBPATH:F:\ffmpeg\x86\libx265\lib /LIBPATH:F:\ffmpeg\x86\libSDL\lib'
+
+
+
+在config.mak文件中打开CONFIG_FFPLAY选项
+修改CFLAGS-ffplay指定的引用路径为：
+64位：
+-I/f/ffmpeg/x64/libSDL/include
+32位：
+-I/f/ffmpeg/x86/libSDL/include
+
+修改LIBS-ffplay为LIBS-ffplay=SDL2.lib SDL2main.lib winmm.lib dxguid.lib
+
+将config.h中的#define CONFIG_FFPLAY 0改为#define CONFIG_FFPLAY 1
+去掉config.mak中CONFIG_FFPLAY=yes前面的感叹号
+
+make -j 2
+make install
+
+======================
+完成后，恢复link.exe
+$ mv /bin/msyslink.exe /bin/link.exe
+
+测试：
+ffmpeg.exe -i Wildlife.wmv -vcodec libx264 -strict -2 -f mp4 wildlife-h264.mp4
+ffmpeg.exe -i Wildlife.wmv -vcodec libx265 -strict -2 -f mp4 wildlife-h265.mp4
+
+ffmpeg.exe -i Wildlife.wmv -vcodec libx264 -acodec mp2 -f dvd -strict -2 wildlife-h264.ps
+ffmpeg.exe -i Wildlife.wmv -vcodec libx265 -acodec mp2 -f dvd -strict -2 wildlife-h265.ps
+
+5.2、gcc编译 ffmpeg
+解压出来，用mingw进入源代码目录
+执行：
+./configure --enable-yasm --prefix=/f/ffmpeg/ffmpeg --disable-debug --enable-static --enable-shared --enable-avresample --enable-nonfree --enable-gpl --enable-libx264
+make
+make install
+
+DESTDIR=/f/ffmpeg/ffmpeg make install
+
+=====================转html5视频格式==========================================
+@md html5
+
+REM mp4  (H.264 / ACC)
+ffmpeg -i %1 -b:v 1500k -vcodec libx264 -preset medium -g 30 -s 640x360 html5\%~n1.mp4
+
+REM webm (VP8 / Vorbis)
+ffmpeg -i %1 -b:v 1500k -vcodec libvpx -acodec libvorbis -ab 160000 -f webm -g 30 -s 640x360 html5\%~n1.webm
+
+REM ogv  (Theora / Vorbis)
+ffmpeg -i %1 -b:v 1500k -vcodec libtheora -acodec libvorbis -ab 160000 -g 30 -s 640x360 html5\%~n1.ogv
+
+REM jpeg (screenshot at 10 seconds)
+ffmpeg -i %1 -ss 00:10 -vframes 1 -r 1 -s 640x360 -f image2 html5\%~n1.jpg
+
+
+==================
+完成后
