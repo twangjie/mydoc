@@ -206,10 +206,14 @@ lib /machine:x64 /def:libx264-142.def /out:x264.lib
 32位：
 -I/f/ffmpeg/x86/libSDL/include
 
+CFLAGS-ffplay=-If:/tools/ffmpeg/libSDL/include
+
 修改LIBS-ffplay为LIBS-ffplay=SDL2.lib SDL2main.lib winmm.lib dxguid.lib
 
-将config.h中的#define CONFIG_FFPLAY 0改为#define CONFIG_FFPLAY 1
-去掉config.mak中CONFIG_FFPLAY=yes前面的感叹号
+将config.h中的 #define CONFIG_FFPLAY 0 改为 #define CONFIG_FFPLAY 1
+去掉config.mak中 CONFIG_FFPLAY=yes 前面的感叹号
+
+在config.mak的EXTRALIBS选项中加入 -libpath:F:/tools/ffmpeg/libSDL/lib/x86
 
 make -j 2
 make install
@@ -250,5 +254,6 @@ REM jpeg (screenshot at 10 seconds)
 ffmpeg -i %1 -ss 00:10 -vframes 1 -r 1 -s 640x360 -f image2 html5\%~n1.jpg
 
 
-==================
-完成后
+==================硬件加速性能测试
+ffmpeg -hwaccel d3d11va -threads 1 -i e:\Downloads\transformers5.mp4 -f null - -benchmark
+ffmpeg -hwaccel d3d11va -threads 2 -i e:\Downloads\transformers5.mp4 -c:v nvenc_h264 -an -f null - -benchmark
