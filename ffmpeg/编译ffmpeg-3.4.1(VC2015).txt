@@ -1,5 +1,47 @@
+
+
+# 从VS2015 x64/x86 Native Tools Command Prompt go to your msys2 directory and type:
+
+msys2_shell.cmd -mingw64 -full-path
+
+
+# compile options for minial ffmpeg which can encode/decode from images to h264
+# https://gist.github.com/lulalala/7028049
+
+#  更新x264源码中的 config.sub和config.guess
+# http://git.savannah.gnu.org/gitweb/?p=config.git;a=blob_plain;f=config.sub;hb=HEAD
+# http://git.savannah.gnu.org/gitweb/?p=config.git;a=blob_plain;f=config.guess;hb=HEAD
+
+curl -o config.sub "http://git.savannah.gnu.org/gitweb/?p=config.git;a=blob_plain;f=config.sub;hb=HEAD"
+curl -o config.guess "http://git.savannah.gnu.org/gitweb/?p=config.git;a=blob_plain;f=config.guess;hb=HEAD"
+
+# for x264
+CC=cl ./configure --prefix=/f/tools/ffmpeg/libx264/x86 --extra-cflags="-DNO_PREFIX" --enable-shared --enable-static --bit-depth=8 --enable-pic
+make
+make install
+
+
+# for x265
+
+cp /f/tools/ffmpeg/libx265/lib/libx265.lib /f/tools/ffmpeg/libx265/lib/x265.lib
+cp /f/tools/ffmpeg/libx265/lib/pkgconfig/x265.pc /usr/lib/pkgconfig/
+
+pkg-config --list-all
+
+# 完整
+./configure --toolchain=msvc --prefix=/f/tools/ffmpeg/ffmpeg --arch=x86 --enable-x86asm --enable-shared --disable-static --enable-gpl --enable-version3 --enable-libx264 --enable-libx265 --extra-cflags='-DWIN32_LEAN_AND_MEAN /IF:\tools\ffmpeg\libx264\x86\include /IF:\tools\ffmpeg\libx265\include' --extra-ldflags='/LIBPATH:F:\tools\ffmpeg\libx264\x86\lib /LIBPATH:F:\tools\ffmpeg\libx265\lib'
+
+
+# 精简
+./configure --toolchain=msvc --prefix=/f/tools/ffmpeg/ffmpeg --arch=x86 --enable-x86asm --enable-shared --disable-static --enable-gpl --enable-version3 --enable-libx264 --enable-libx265 --extra-cflags='-DWIN32_LEAN_AND_MEAN /IF:\tools\ffmpeg\libx264\x86\include /IF:\tools\ffmpeg\libx265\include' --extra-ldflags='/LIBPATH:F:\tools\ffmpeg\libx264\x86\lib /LIBPATH:F:\tools\ffmpeg\libx265\lib' --disable-encoders --enable-encoder=libx264,libx265,hevc,libx264rgb,bmp,png,ljpeg --disable-decoders --enable-decoder=libx264,libx265,hevc,h264,bmp,png --disable-filters --enable-filter=scale --disable-muxers --enable-muxer=rtp,rtsp,image2,matroska,avi,h264,hevc,dvd,mpegps,mpeg,mpegts,mpeg1video,mpeg2video,mov,mp4,m4a,3gp,3g2,mj2,null --disable-demuxers --enable-demuxer=rtp,rtsp,image2,matroska,avi,h264,hevc,dvd,mpegps,mpeg,mpegts,mpeg1video,mpeg2video,mov,mp4,m4a,3gp,3g2,mj2 --disable-parsers --enable-parser=bmp,h264,hevc,png,mp4,mp3,null --disable-bsfs
+
+
+
+
 ./configure --toolchain=msvc --prefix=/f/tools/ffmpeg/ffmpeg --enable-shared --enable-x86asm --enable-asm --enable-avresample --enable-nonfree --enable-gpl --extra-cflags='-DWIN32_LEAN_AND_MEAN'
 
 # configure完成后，在config.h中做如下修改：
 # 1、将config.h中CC_IDENT宏里面的中文去掉；
 # 2、将CONFIG_FFPLAY定义从0改为1（#define CONFIG_FFPLAY 1）
+
+
