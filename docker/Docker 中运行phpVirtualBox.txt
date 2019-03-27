@@ -4,14 +4,6 @@ VirtualBox 服务器IP:       192.168.35.102
 phpVirtualBox 服务器IP:    192.168.35.10
 
 
-# 修改phpVirtualBox的配置
-echo 'VBOXWEB_USER=root' >> /etc/default/virtualbox
-echo 'VBOXWEB_HOST=0.0.0.0' >> /etc/default/virtualbox
-
-# 重启vboxweb-service服务
-systemctl restart vboxweb-service
-
-
 #添加vbox用户
 useradd vbox
 
@@ -19,8 +11,28 @@ useradd vbox
 passwd vbox
 
 
+# 修改vboxweb服务的配置
+echo 'VBOXWEB_USER=vbox' >> /etc/default/virtualbox
+# echo 'VBOXWEB_HOST=0.0.0.0' >> /etc/default/virtualbox
+
+# 编辑 /lib/systemd/system/vboxweb.service
+#在 ExecStart=/usr/bin/vboxwebsrv后添加参数 --host 0.0.0.0
+
+# sudo mkdir /etc/systemd/service/vboxweb.service.d
+# echo "[Service]" | sudo tee -a /etc/systemd/service/vboxweb.service.d/custom-host.conf
+# echo "Environment=VBOXWEB_HOST=0.0.0.0" | sudo tee -a /etc/systemd/service/vboxweb.service.d/custom-host.conf
+
+# 重启vboxweb-service服务
+systemctl daemon-reload
+systemctl restart vboxweb-service
+
+
 # 在192.168.35.10服务器上运行
-docker run --name vbox_http_102 --restart=always -p 10012:80 -e ID_PORT_18083_TCP=192.168.35.102:18083 -e ID_NAME=serverName -e ID_USER=vbox -e ID_PW='vbox' -d jazzdd/phpvirtualbox
+
+# 旧的命令
+# docker run --name vbox_http_102 --restart=always -p 10012:80 -e ID_PORT_18083_TCP=192.168.35.102:18083 -e ID_NAME=serverName -e ID_USER=vbox -e ID_PW='vbox' -d jazzdd/phpvirtualbox
 
 
+sudo docker run --name vbox_http --restart=always -p 23180:80 -e SRV1_HOSTPORT=192.168.50.231:18083 -e SRV1_NAME=Server231 -e SRV1_USER=vbox -e SRV1_PW='vbox' -e CONF_noAuth='true'  -d jazzdd/phpvirtualbox
+ 
 
