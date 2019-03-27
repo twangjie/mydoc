@@ -40,18 +40,19 @@ s = imageHSV[:,:,1]
 v = imageHSV[:,:,2]
 
 # 显示各个分离出的通道HSV
-#hh=h.copy()
-# hh.fill(255)
+hh=h.copy()
+hh.fill(255)
 ss=s.copy()
 ss.fill(255)
 vv=v.copy()
 vv.fill(255)
 
+#cv2.imshow("Hue", h)
+#cv2.imshow("Saturation", s)
+#cv2.imshow("Value", v)
 cv2.imshow("Hue", cv2.cvtColor(cv2.merge([h, ss, vv]), cv2.COLOR_HSV2BGR))
-cv2.imshow("Saturation", s)
-cv2.imshow("Value", v)
-#cv2.imshow("Saturation", cv2.cvtColor(cv2.merge([hh, s, vv]), cv2.COLOR_HSV2BGR))
-#cv2.imshow("Value", cv2.cvtColor(cv2.merge([hh, ss, v]), cv2.COLOR_HSV2BGR))
+cv2.imshow("Saturation", cv2.cvtColor(cv2.merge([hh, s, vv]), cv2.COLOR_HSV2BGR))
+cv2.imshow("Value", cv2.cvtColor(cv2.merge([hh, ss, v]), cv2.COLOR_HSV2BGR))
 
 cv2.imshow("Merged(H,S,V)", cv2.cvtColor(cv2.merge([h, s, v]), cv2.COLOR_HSV2BGR))
 
